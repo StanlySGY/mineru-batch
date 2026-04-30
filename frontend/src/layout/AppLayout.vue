@@ -22,23 +22,36 @@ const navItems = [
 
 const currentPath = computed(() => route.path)
 const sidebarWidth = computed(() => (collapsed.value ? '64px' : '220px'))
+const isMobile = ref(false)
+
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768
+  if (isMobile.value) collapsed.value = true
+}
 
 function navigate(path: string) {
   router.push(path)
+  if (isMobile.value) collapsed.value = true
 }
 
 let sseClose: (() => void) | null = null
 onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
   api.getConcurrency().then(r => concurrency.value = r.concurrency).catch(() => {})
   sseClose = api.onTaskEvent(() => { sseConnected.value = true })
   setTimeout(() => { if (!sseConnected.value) sseConnected.value = false }, 5000)
 })
-onUnmounted(() => { if (sseClose) sseClose() })
+onUnmounted(() => {
+  if (sseClose) sseClose()
+  window.removeEventListener('resize', checkMobile)
+})
 </script>
 
 <template>
 <div class="layout">
-  <aside class="sidebar" :style="{ width: sidebarWidth }">
+  <div v-if="isMobile && !collapsed" class="sidebar-overlay" @click="collapsed = true"></div>
+  <aside class="sidebar" :class="{ 'sidebar-mobile': isMobile }" :style="{ width: sidebarWidth }" v-show="!isMobile || !collapsed">
     <div class="sidebar-logo" @click="navigate('/dashboard')">
       <div class="logo-icon">
         <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
@@ -189,4 +202,16 @@ onUnmounted(() => { if (sseClose) sseClose() })
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.sidebar-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 99;
+}
+.sidebar-mobile {
+  position: fixed; left: 0; top: 0; bottom: 0; z-index: 100;
+}
+
+@media (max-width: 768px) {
+  .mobile-collapse { display: block !important; }
+  .page-content { padding: 16px; }
+}
 </style>

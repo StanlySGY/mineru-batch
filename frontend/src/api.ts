@@ -6,12 +6,16 @@ const http = axios.create({ baseURL: '/api' })
 http.interceptors.response.use(
   (res) => res,
   (err) => {
-    const status = err.response?.status
-    if (status === 500) ElMessage.error('服务器内部错误')
-    else if (status === 413) ElMessage.error('请求体过大')
-    else if (status && status >= 400) {
-      const msg = err.response?.data?.detail
-      if (msg && typeof msg === 'string') ElMessage.error(msg)
+    if (!err.response) {
+      ElMessage.error('网络连接失败，请检查服务是否运行')
+    } else {
+      const status = err.response.status
+      if (status === 500) ElMessage.error('服务器内部错误')
+      else if (status === 413) ElMessage.error('请求体过大')
+      else if (status && status >= 400) {
+        const msg = err.response?.data?.detail
+        if (msg && typeof msg === 'string') ElMessage.error(msg)
+      }
     }
     return Promise.reject(err)
   },
@@ -245,11 +249,26 @@ export const api = {
   },
 
   onTaskEvent(callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void): () => void {
-    const es = new EventSource('/api/tasks/events')
-    es.onmessage = (e) => {
-      try { callback(JSON.parse(e.data)) } catch {}
+    let reconnectAttempts = 0
+    let es: EventSource | null = null
+    let stopped = false
+
+    function connect() {
+      if (stopped) return
+      es = new EventSource('/api/tasks/events')
+      es.onmessage = (e) => {
+        reconnectAttempts = 0
+        try { callback(JSON.parse(e.data)) } catch {}
+      }
+      es.onerror = () => {
+        es?.close()
+        if (stopped) return
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
+        reconnectAttempts++
+        setTimeout(connect, delay)
+      }
     }
-    es.onerror = () => { es.close() }
-    return () => es.close()
+    connect()
+    return () => { stopped = true; es?.close() }
   },
 }
