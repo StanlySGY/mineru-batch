@@ -7,11 +7,40 @@ import { isDocFile } from '../utils/file'
 import { translateError } from '../utils/error'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import hljs from 'highlight.js/lib/core'
+import javascript from 'highlight.js/lib/languages/javascript'
+import python from 'highlight.js/lib/languages/python'
+import json from 'highlight.js/lib/languages/json'
+import bash from 'highlight.js/lib/languages/bash'
+import xml from 'highlight.js/lib/languages/xml'
+import css from 'highlight.js/lib/languages/css'
+import yaml from 'highlight.js/lib/languages/yaml'
+import sql from 'highlight.js/lib/languages/sql'
+import plaintext from 'highlight.js/lib/languages/plaintext'
+
+hljs.registerLanguage('javascript', javascript)
+hljs.registerLanguage('js', javascript)
+hljs.registerLanguage('python', python)
+hljs.registerLanguage('json', json)
+hljs.registerLanguage('bash', bash)
+hljs.registerLanguage('xml', xml)
+hljs.registerLanguage('html', xml)
+hljs.registerLanguage('css', css)
+hljs.registerLanguage('yaml', yaml)
+hljs.registerLanguage('sql', sql)
+hljs.registerLanguage('plaintext', plaintext)
 
 marked.setOptions({ breaks: true, gfm: true })
 
 function renderMd(text: string): string {
-  return DOMPurify.sanitize(marked.parse(text) as string)
+  const html = marked.parse(text) as string
+  const clean = DOMPurify.sanitize(html, { ADD_TAGS: ['code', 'pre'], ADD_ATTR: ['class'] })
+  const el = document.createElement('div')
+  el.innerHTML = clean
+  el.querySelectorAll('pre code').forEach(block => {
+    hljs.highlightElement(block as HTMLElement)
+  })
+  return el.innerHTML
 }
 
 const tasks = ref<TaskItem[]>([])
@@ -51,6 +80,7 @@ const previewContent = ref('')
 const previewFilename = ref('')
 const previewFormat = ref('md')
 const previewTaskId = ref(0)
+const previewMode = ref<'render' | 'source'>('render')
 
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
@@ -197,6 +227,7 @@ async function handlePreview(row: TaskItem) {
   previewTaskId.value = row.id
   previewFilename.value = row.original_filename
   previewFormat.value = row.output_format
+  previewMode.value = 'render'
   previewVisible.value = true
   previewLoading.value = true
   previewContent.value = ''
@@ -455,7 +486,13 @@ onUnmounted(() => {
 
 <el-dialog v-model="previewVisible" :title="`预览 - ${previewFilename}`" width="75%" top="5vh" destroy-on-close>
   <div v-loading="previewLoading" class="preview-container">
-    <div v-if="previewContent && previewFormat === 'md'" class="md-preview" v-html="renderMd(previewContent)" />
+    <div v-if="previewContent && previewFormat === 'md'" class="preview-toolbar">
+      <el-radio-group v-model="previewMode" size="small">
+        <el-radio-button value="render">渲染</el-radio-button>
+        <el-radio-button value="source">源码</el-radio-button>
+      </el-radio-group>
+    </div>
+    <div v-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderMd(previewContent)" />
     <pre v-else-if="previewContent" class="text-preview">{{ previewContent }}</pre>
   </div>
   <template #footer>
@@ -530,6 +567,7 @@ onUnmounted(() => {
 .card-title { font-weight: 600; }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
+.preview-toolbar { margin-bottom: 12px; display: flex; justify-content: flex-end; }
 .md-preview { line-height: 1.8; color: #303133; }
 .md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 16px; }
 .md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 14px; }
