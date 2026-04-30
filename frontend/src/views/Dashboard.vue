@@ -147,6 +147,17 @@ onUnmounted(() => {
     <el-skeleton :rows="5" animated style="margin-top:24px" />
   </div>
   <div class="dashboard" v-else v-loading="loading">
+  <div v-if="stats.total === 0" class="empty-dashboard">
+    <el-empty description="还没有任何任务" :image-size="80">
+      <el-button type="primary" size="large" :icon="UploadFilled" @click="router.push('/upload')">上传你的第一个文件</el-button>
+    </el-empty>
+    <div class="empty-steps">
+      <div class="empty-step"><strong>1.</strong> 在设置页配置 MinerU 服务地址</div>
+      <div class="empty-step"><strong>2.</strong> 上传 PDF / 图片 / Word 文件</div>
+      <div class="empty-step"><strong>3.</strong> 等待解析完成，预览或下载结果</div>
+    </div>
+  </div>
+  <template v-else>
   <div class="stat-row">
     <div v-for="c in cards" :key="c.key" class="stat-card clickable" :style="{ background: c.bg }" @click="handleCardClick(c.route)">
       <div class="stat-icon" :style="{ color: c.color }">
@@ -224,6 +235,7 @@ onUnmounted(() => {
       </el-card>
     </div>
   </div>
+  </template>
   </div>
 </template>
 
@@ -270,6 +282,9 @@ onUnmounted(() => {
 .quick-actions { display: flex; flex-direction: column; gap: 12px; }
 .quick-btn { width: 100%; }
 .card-title { font-weight: 600; }
+.empty-dashboard { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; gap: 24px; }
+.empty-steps { display: flex; flex-direction: column; gap: 8px; font-size: 14px; color: #606266; }
+.empty-step strong { color: #409eff; }
 
 @media (max-width: 1000px) {
   .stat-row { flex-wrap: wrap; }

@@ -31,13 +31,13 @@ const LS = {
 }
 
 const backend = ref(localStorage.getItem(LS.backend) || 'hybrid-http-client')
-const mineruApi = ref(localStorage.getItem(LS.mineruApi) || 'http://172.16.100.26:8086/file_parse')
-const serverUrl = ref(localStorage.getItem(LS.serverUrl) || 'http://10.8.132.224:6002/v1')
+const mineruApi = ref(localStorage.getItem(LS.mineruApi) || 'http://localhost:8086/file_parse')
+const serverUrl = ref(localStorage.getItem(LS.serverUrl) || 'http://localhost:6002/v1')
 
 const DEFAULT_ENDPOINT: MineruEndpoint = {
-  url: 'http://172.16.100.26:8086/file_parse',
+  url: 'http://localhost:8086/file_parse',
   backend: 'hybrid-http-client',
-  serverUrl: 'http://10.8.132.224:6002/v1',
+  serverUrl: 'http://localhost:6002/v1',
   enabled: true,
 }
 function loadEndpoints(): MineruEndpoint[] {
@@ -91,8 +91,8 @@ watch(autoConvert, (v) => localStorage.setItem(LS.autoConvert, String(v)))
 
 const DEFAULTS: Record<string, string | number | boolean> = {
   backend: 'hybrid-http-client',
-  mineruApi: 'http://172.16.100.26:8086/file_parse',
-  serverUrl: 'http://10.8.132.224:6002/v1',
+  mineruApi: 'http://localhost:8086/file_parse',
+  serverUrl: 'http://localhost:6002/v1',
   outputFormat: 'md',
   parseMethod: 'auto',
   langList: 'ch',

@@ -401,8 +401,8 @@ ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp",
 async def upload_files(
     files: list[UploadFile] = File(...),
     backend: str = Form("hybrid-http-client"),
-    mineru_api: str = Form("http://172.16.100.26:8086/file_parse"),
-    server_url: str = Form("http://10.8.132.224:6002/v1"),
+    mineru_api: str = Form("http://localhost:8086/file_parse"),
+    server_url: str = Form("http://localhost:6002/v1"),
     mineru_endpoints: str = Form(None),
     parse_method: str = Form("auto"),
     lang_list: str = Form("ch"),
@@ -427,6 +427,17 @@ async def upload_files(
 
     def _b(val: str) -> bool:
         return val.lower() in ("true", "1", "yes")
+
+    try:
+        _start_page = int(start_page_id)
+        _end_page = int(end_page_id)
+        _timeout = int(timeout)
+    except ValueError:
+        raise HTTPException(400, "start_page_id, end_page_id, timeout must be integers")
+    if _timeout < 10 or _timeout > 7200:
+        raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
+    if _start_page < 0:
+        raise HTTPException(400, "start_page_id must be >= 0")
 
     endpoints_list = None
     if mineru_endpoints:
@@ -469,10 +480,10 @@ async def upload_files(
             return_images=_b(return_images),
             response_format_zip=_b(response_format_zip),
             replace_image_url=_b(replace_image_url),
-            start_page_id=int(start_page_id),
-            end_page_id=int(end_page_id),
+            start_page_id=_start_page,
+            end_page_id=_end_page,
             output_format=OutputFormat(output_format),
-            timeout=int(timeout),
+            timeout=_timeout,
             auto_convert_doc=_b(auto_convert),
         )
         db.add(task)

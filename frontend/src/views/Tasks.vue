@@ -4,6 +4,7 @@ import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Time
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
+import { translateError } from '../utils/error'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -391,7 +392,7 @@ onUnmounted(() => {
     </el-table-column>
     <el-table-column label="状态" width="120" prop="status" sortable :sort-method="(a: TaskItem, b: TaskItem) => a.status.localeCompare(b.status)">
       <template #default="{ row }">
-        <el-tooltip v-if="row.status === 'failed' && row.error_message" :content="row.error_message" placement="top">
+        <el-tooltip v-if="row.status === 'failed' && row.error_message" :content="translateError(row.error_message)" placement="top">
           <el-tag :type="statusTag[row.status]?.type" size="small" style="cursor:help">
             {{ statusTag[row.status]?.label || row.status }}
           </el-tag>
@@ -438,7 +439,16 @@ onUnmounted(() => {
   </el-table>
 
   <div class="pagination-row" v-if="total > size">
-    <el-pagination background layout="prev, pager, next" :total="total" :page-size="size" :current-page="page" @current-change="handlePageChange" />
+    <el-pagination
+      background
+      layout="total, sizes, prev, pager, next, jumper"
+      :total="total"
+      :page-sizes="[20, 50, 100]"
+      :page-size="size"
+      :current-page="page"
+      @current-change="handlePageChange"
+      @size-change="(s: number) => { size = s; page = 1; loadTasks() }"
+    />
   </div>
   </template>
   </el-card>
@@ -494,7 +504,7 @@ onUnmounted(() => {
 
     <template v-if="detailTask.error_message">
       <el-divider content-position="left">错误信息</el-divider>
-      <div class="detail-error"><pre>{{ detailTask.error_message }}</pre></div>
+      <div class="detail-error"><pre>{{ translateError(detailTask.error_message) }}</pre></div>
     </template>
 
     <div class="detail-actions">

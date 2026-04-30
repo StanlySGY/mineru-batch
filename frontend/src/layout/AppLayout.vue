@@ -82,6 +82,9 @@ onUnmounted(() => {
     </nav>
 
     <div class="sidebar-footer">
+      <transition name="fade">
+        <div v-show="!collapsed" class="sidebar-version">v1.0.0</div>
+      </transition>
       <div class="nav-item collapse-toggle" @click="collapsed = !collapsed">
         <el-icon :size="18">
           <component :is="collapsed ? Expand : Fold" />
@@ -173,6 +176,7 @@ onUnmounted(() => {
 
 .collapse-toggle { opacity: 0.7; }
 .collapse-toggle:hover { opacity: 1; }
+.sidebar-version { font-size: 11px; color: rgba(255,255,255,0.3); text-align: center; padding: 4px 0; }
 
 .main-area {
   flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden;
