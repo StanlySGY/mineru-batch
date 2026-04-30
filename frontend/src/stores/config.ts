@@ -142,6 +142,88 @@ function resetDefaults() {
   localStorage.setItem(LS.mineruEndpoints, JSON.stringify(mineruEndpoints.value))
 }
 
+const PRESETS_KEY = 'cfg_presets'
+
+interface Preset {
+  name: string
+  data: Record<string, unknown>
+}
+
+function loadPresets(): Preset[] {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+function savePresets(list: Preset[]) {
+  localStorage.setItem(PRESETS_KEY, JSON.stringify(list))
+}
+
+function getCurrentConfig(): Record<string, unknown> {
+  return {
+    backend: backend.value, mineruApi: mineruApi.value, serverUrl: serverUrl.value,
+    outputFormat: outputFormat.value, parseMethod: parseMethod.value, langList: langList.value,
+    formulaEnable: formulaEnable.value, tableEnable: tableEnable.value,
+    returnMd: returnMd.value, returnMiddleJson: returnMiddleJson.value,
+    returnModelOutput: returnModelOutput.value, returnContentList: returnContentList.value,
+    returnImages: returnImages.value, responseFormatZip: responseFormatZip.value,
+    replaceImageUrl: replaceImageUrl.value, startPageId: startPageId.value,
+    endPageId: endPageId.value, timeout: timeout.value, autoConvert: autoConvert.value,
+  }
+}
+
+function applyConfigData(data: Record<string, unknown>) {
+  const map: Record<string, { ref: any; ls: string }> = {
+    backend: { ref: backend, ls: LS.backend },
+    mineruApi: { ref: mineruApi, ls: LS.mineruApi },
+    serverUrl: { ref: serverUrl, ls: LS.serverUrl },
+    outputFormat: { ref: outputFormat, ls: LS.outputFormat },
+    parseMethod: { ref: parseMethod, ls: LS.parseMethod },
+    langList: { ref: langList, ls: LS.langList },
+    formulaEnable: { ref: formulaEnable, ls: LS.formulaEnable },
+    tableEnable: { ref: tableEnable, ls: LS.tableEnable },
+    returnMd: { ref: returnMd, ls: LS.returnMd },
+    returnMiddleJson: { ref: returnMiddleJson, ls: LS.returnMiddleJson },
+    returnModelOutput: { ref: returnModelOutput, ls: LS.returnModelOutput },
+    returnContentList: { ref: returnContentList, ls: LS.returnContentList },
+    returnImages: { ref: returnImages, ls: LS.returnImages },
+    responseFormatZip: { ref: responseFormatZip, ls: LS.responseFormatZip },
+    replaceImageUrl: { ref: replaceImageUrl, ls: LS.replaceImageUrl },
+    startPageId: { ref: startPageId, ls: LS.startPageId },
+    endPageId: { ref: endPageId, ls: LS.endPageId },
+    timeout: { ref: timeout, ls: LS.timeout },
+    autoConvert: { ref: autoConvert, ls: LS.autoConvert },
+  }
+  for (const [key, entry] of Object.entries(map)) {
+    if (data[key] !== undefined) {
+      entry.ref.value = data[key]
+    }
+  }
+}
+
+const presets = ref<Preset[]>(loadPresets())
+
+function savePreset(name: string) {
+  const list = loadPresets()
+  const idx = list.findIndex(p => p.name === name)
+  const preset: Preset = { name, data: getCurrentConfig() }
+  if (idx >= 0) list[idx] = preset; else list.push(preset)
+  savePresets(list)
+  presets.value = list
+}
+
+function loadPreset(name: string) {
+  const list = loadPresets()
+  const p = list.find(p => p.name === name)
+  if (p) applyConfigData(p.data)
+}
+
+function deletePreset(name: string) {
+  const list = loadPresets().filter(p => p.name !== name)
+  savePresets(list)
+  presets.value = list
+}
+
 export function useConfig() {
   return {
     backend, mineruApi, serverUrl, outputFormat,
@@ -154,5 +236,6 @@ export function useConfig() {
     timeout, autoConvert,
     mineruEndpoints,
     resetDefaults,
+    presets, savePreset, loadPreset, deletePreset,
   }
 }

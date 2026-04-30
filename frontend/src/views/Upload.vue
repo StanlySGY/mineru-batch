@@ -16,6 +16,16 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const showAdvanced = ref(false)
 
+const presetProxy = ref('')
+
+function onPresetChange(name: string) {
+  if (name) {
+    cfg.loadPreset(name)
+    ElMessage.success(`已加载预设 "${name}"`)
+  }
+  presetProxy.value = ''
+}
+
 const hasDocFiles = computed(() => fileList.value.some(f => isDocFile(f.name)))
 const totalSize = computed(() => {
   const bytes = fileList.value.reduce((sum, f) => sum + (f.raw?.size || 0), 0)
@@ -149,7 +159,12 @@ async function handleUpload() {
   <div class="upload-right">
     <el-card shadow="never" class="config-card">
       <template #header>
-        <span class="card-title">解析配置</span>
+        <div class="card-header-row">
+          <span class="card-title">解析配置</span>
+          <el-select v-if="cfg.presets.value.length" v-model="presetProxy" placeholder="加载预设" size="small" clearable style="width:140px" @change="onPresetChange">
+            <el-option v-for="p in cfg.presets.value" :key="p.name" :label="p.name" :value="p.name" />
+          </el-select>
+        </div>
       </template>
 
       <el-form label-position="top" class="config-form">

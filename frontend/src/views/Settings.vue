@@ -12,6 +12,30 @@ const testingAll = ref(false)
 const nodeLatency = ref<Record<number, string>>({})
 const concurrency = ref(5)
 const storage = ref<{ uploads: number; outputs: number; converted: number; database: number; total: number } | null>(null)
+const presetName = ref('')
+const presetDialogVisible = ref(false)
+
+function openSavePreset() {
+  presetName.value = ''
+  presetDialogVisible.value = true
+}
+
+function confirmSavePreset() {
+  if (!presetName.value.trim()) return ElMessage.warning('请输入预设名称')
+  cfg.savePreset(presetName.value.trim())
+  presetDialogVisible.value = false
+  ElMessage.success(`预设 "${presetName.value.trim()}" 已保存`)
+}
+
+function handleLoadPreset(name: string) {
+  cfg.loadPreset(name)
+  ElMessage.success(`已加载预设 "${name}"`)
+}
+
+function handleDeletePreset(name: string) {
+  cfg.deletePreset(name)
+  ElMessage.success(`已删除预设 "${name}"`)
+}
 
 async function loadConcurrency() {
   try {
@@ -239,6 +263,23 @@ const paramTable = [
 
   <el-card shadow="never" class="settings-card">
     <template #header>
+      <div class="settings-header">
+        <span class="card-title">配置预设</span>
+        <el-button size="small" type="primary" @click="openSavePreset">保存当前配置为预设</el-button>
+      </div>
+    </template>
+    <div v-if="cfg.presets.value.length" class="preset-list">
+      <div v-for="p in cfg.presets.value" :key="p.name" class="preset-item">
+        <span class="preset-name">{{ p.name }}</span>
+        <el-button size="small" type="primary" text @click="handleLoadPreset(p.name)">加载</el-button>
+        <el-button size="small" type="danger" text @click="handleDeletePreset(p.name)">删除</el-button>
+      </div>
+    </div>
+    <div v-else class="preset-empty">暂无预设，点击上方按钮保存当前配置</div>
+  </el-card>
+
+  <el-card shadow="never" class="settings-card">
+    <template #header>
       <span class="card-title">通用配置</span>
     </template>
 
@@ -348,7 +389,15 @@ const paramTable = [
       </el-table>
     </div>
   </el-card>
-</div>
+	</div>
+
+<el-dialog v-model="presetDialogVisible" title="保存配置预设" width="360px">
+  <el-input v-model="presetName" placeholder="输入预设名称" maxlength="30" @keyup.enter="confirmSavePreset" />
+  <template #footer>
+    <el-button @click="presetDialogVisible = false">取消</el-button>
+    <el-button type="primary" @click="confirmSavePreset">保存</el-button>
+  </template>
+</el-dialog>
 </template>
 
 <style scoped>
@@ -356,6 +405,10 @@ const paramTable = [
   display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
 }
 .settings-card, .info-card { border-radius: 12px; }
+.preset-list { display: flex; flex-direction: column; gap: 8px; }
+.preset-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #ebeef5; border-radius: 8px; }
+.preset-name { flex: 1; font-size: 14px; font-weight: 500; color: #303133; }
+.preset-empty { color: #909399; font-size: 13px; text-align: center; padding: 20px 0; }
 .settings-form { display: flex; flex-direction: column; gap: 2px; }
 .card-title { font-weight: 600; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
