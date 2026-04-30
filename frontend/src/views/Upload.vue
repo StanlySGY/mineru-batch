@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
+import type { UploadProgress } from '../api'
 import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
@@ -15,6 +16,8 @@ const cfg = useConfig()
 const fileList = ref<UploadUserFile[]>([])
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const uploadSpeed = ref('')
+const uploadEta = ref('')
 const showAdvanced = ref(false)
 
 const presetProxy = ref('')
@@ -56,6 +59,8 @@ async function handleUpload() {
   if (!rawFiles.length) return ElMessage.warning('请选择文件')
   uploading.value = true
   uploadProgress.value = 0
+  uploadSpeed.value = ''
+  uploadEta.value = ''
   try {
     const enabledEndpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
     const endpointsStr = enabledEndpoints.length > 0 ? JSON.stringify(enabledEndpoints) : undefined
@@ -80,7 +85,11 @@ async function handleUpload() {
       outputFormat: cfg.outputFormat.value,
       timeout: cfg.timeout.value,
       autoConvert: cfg.autoConvert.value,
-    }, (pct) => { uploadProgress.value = pct })
+    }, (p: UploadProgress) => {
+      uploadProgress.value = p.pct
+      uploadSpeed.value = p.speed > 1024 * 1024 ? `${(p.speed / 1024 / 1024).toFixed(1)} MB/s` : `${(p.speed / 1024).toFixed(0)} KB/s`
+      uploadEta.value = p.eta > 60 ? `约 ${Math.ceil(p.eta / 60)} 分钟` : p.eta > 0 ? `约 ${Math.ceil(p.eta)} 秒` : ''
+    })
     ElMessage.success(`已提交 ${res.tasks.length} 个解析任务`)
     requestNotificationPermission()
     fileList.value = []
@@ -249,7 +258,7 @@ async function handleUpload() {
 
         <el-form-item v-if="uploading">
           <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
-          <div class="form-tip">{{ uploadProgress < 100 ? '上传中...' : '上传完成，服务端处理中...' }}</div>
+          <div class="form-tip">{{ uploadProgress < 100 ? `上传中... ${uploadSpeed} ${uploadEta}` : '上传完成，服务端处理中...' }}</div>
         </el-form-item>
 
         <el-form-item>

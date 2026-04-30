@@ -70,6 +70,14 @@ export interface LogGroup {
   logs: LogItem[]
 }
 
+export interface UploadProgress {
+  pct: number
+  loaded: number
+  total: number
+  speed: number
+  eta: number
+}
+
 export interface UploadOptions {
   backend: string
   mineruApi: string
@@ -124,7 +132,7 @@ export const api = {
     return data as { concurrency: number }
   },
 
-  async upload(files: File[], opts: UploadOptions, onProgress?: (pct: number) => void) {
+  async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void) {
     const form = new FormData()
     files.forEach((f) => form.append('files', f))
     form.append('backend', opts.backend)
@@ -147,9 +155,25 @@ export const api = {
     form.append('output_format', opts.outputFormat)
     form.append('timeout', String(opts.timeout))
     form.append('auto_convert', String(opts.autoConvert))
+    const startTime = Date.now()
+    let lastLoaded = 0
+    let lastTime = startTime
     const { data } = await http.post('/upload', form, {
       onUploadProgress: (e) => {
-        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+        if (!onProgress || !e.total) return
+        const now = Date.now()
+        const elapsed = now - lastTime
+        const speed = elapsed > 0 ? (e.loaded - lastLoaded) / (elapsed / 1000) : 0
+        lastLoaded = e.loaded
+        lastTime = now
+        const remaining = speed > 0 ? (e.total - e.loaded) / speed : 0
+        onProgress({
+          pct: Math.round((e.loaded / e.total) * 100),
+          loaded: e.loaded,
+          total: e.total,
+          speed,
+          eta: remaining,
+        })
       },
     })
     return data
