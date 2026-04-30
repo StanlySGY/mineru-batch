@@ -1,0 +1,381 @@
+<script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
+import { Download, Delete, RefreshRight, Search, View, Switch } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { api, type TaskItem } from '../api'
+import { isDocFile } from '../utils/file'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+
+marked.setOptions({ breaks: true, gfm: true })
+
+function renderMd(text: string): string {
+  return DOMPurify.sanitize(marked.parse(text) as string)
+}
+
+const tasks = ref<TaskItem[]>([])
+const total = ref(0)
+const page = ref(1)
+const size = ref(20)
+const filterStatus = ref('')
+const filterSearch = ref('')
+const loading = ref(false)
+const firstLoad = ref(true)
+let timer: ReturnType<typeof setInterval> | null = null
+
+const selectedIds = ref<number[]>([])
+
+const previewVisible = ref(false)
+const previewLoading = ref(false)
+const previewContent = ref('')
+const previewFilename = ref('')
+const previewFormat = ref('md')
+const previewTaskId = ref(0)
+
+const statusTag: Record<string, { type: 'info' | 'warning' | 'success' | 'danger'; label: string }> = {
+  pending: { type: 'info', label: '等待中' },
+  processing: { type: 'warning', label: '处理中' },
+  completed: { type: 'success', label: '已完成' },
+  failed: { type: 'danger', label: '失败' },
+}
+
+async function loadTasks() {
+  loading.value = true
+  try {
+    const res = await api.listTasks({
+      status: filterStatus.value || undefined,
+      search: filterSearch.value || undefined,
+      page: page.value,
+      size: size.value,
+    })
+    tasks.value = res.items
+    total.value = res.total
+  } finally {
+    loading.value = false
+    firstLoad.value = false
+  }
+}
+
+async function handleDelete(row: TaskItem) {
+  try {
+    await ElMessageBox.confirm(`确定删除 "${row.original_filename}"？`, '确认', { type: 'warning' })
+    await api.deleteTask(row.id)
+    ElMessage.success('已删除')
+    loadTasks()
+  } catch {}
+}
+
+async function handleBatchDelete() {
+  if (!selectedIds.value.length) return ElMessage.warning('请先选择任务')
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${selectedIds.value.length} 个任务？`, '确认', { type: 'warning' })
+    await api.batchDeleteTasks(selectedIds.value)
+    ElMessage.success('已批量删除')
+    selectedIds.value = []
+    loadTasks()
+  } catch {}
+}
+
+async function handleBatchRetry() {
+  if (!selectedIds.value.length) return ElMessage.warning('请先选择任务')
+  const ids = selectedIds.value.filter(id => {
+    const t = tasks.value.find(r => r.id === id)
+    return t && (t.status === 'failed' || t.status === 'completed')
+  })
+  if (!ids.length) return ElMessage.warning('选中的任务中没有可重试的（失败/已完成）')
+  try {
+    const res = await api.batchRetryTasks(ids)
+    ElMessage.success(`已重试 ${res.count} 个任务`)
+    selectedIds.value = []
+    loadTasks()
+  } catch { ElMessage.error('批量重试失败') }
+}
+
+async function handleBatchConvert() {
+  if (!selectedIds.value.length) return ElMessage.warning('请先选择任务')
+  const ids = selectedIds.value.filter(id => {
+    const t = tasks.value.find(r => r.id === id)
+    return t && isDocFile(t.original_filename) && !t.pdf_path
+  })
+  if (!ids.length) return ElMessage.warning('选中的任务中没有待转换的文档')
+  try {
+    const res = await api.batchConvertDocs(ids)
+    ElMessage.success(`已转换 ${res.count} 个文档`)
+    selectedIds.value = []
+    loadTasks()
+  } catch { ElMessage.error('批量转换失败') }
+}
+
+function handleBatchDownload() {
+  const ids = selectedIds.value.filter(id => {
+    const t = tasks.value.find(r => r.id === id)
+    return t && t.status === 'completed'
+  })
+  if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
+  const a = document.createElement('a')
+  a.href = api.batchDownloadUrl(ids)
+  a.download = ''
+  a.target = '_blank'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+async function handleRetryAllFailed() {
+  const failedIds = tasks.value.filter(t => t.status === 'failed').map(t => t.id)
+  if (!failedIds.length) return ElMessage.warning('当前页无失败任务')
+  try {
+    const res = await api.batchRetryTasks(failedIds)
+    ElMessage.success(`已重试 ${res.count} 个当前页失败任务`)
+    loadTasks()
+  } catch { ElMessage.error('批量重试失败') }
+}
+
+async function handleConvertAllDocs() {
+  const docIds = tasks.value.filter(t => isDocFile(t.original_filename) && !t.pdf_path).map(t => t.id)
+  if (!docIds.length) return ElMessage.warning('当前页无待转换文档')
+  try {
+    const res = await api.batchConvertDocs(docIds)
+    ElMessage.success(`已转换 ${res.count} 个当前页文档`)
+    loadTasks()
+  } catch { ElMessage.error('批量转换失败') }
+}
+
+async function handleRetry(row: TaskItem) {
+  try {
+    await api.retryTask(row.id)
+    ElMessage.success('已重新提交')
+    loadTasks()
+  } catch {
+    ElMessage.error('重试失败')
+  }
+}
+
+function handleDownload(row: TaskItem) {
+  const a = document.createElement('a')
+  a.href = api.downloadUrl(row.id)
+  a.download = ''
+  a.target = '_blank'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
+async function handlePreview(row: TaskItem) {
+  previewTaskId.value = row.id
+  previewFilename.value = row.original_filename
+  previewFormat.value = row.output_format
+  previewVisible.value = true
+  previewLoading.value = true
+  previewContent.value = ''
+  try {
+    const res = await api.preview(row.id)
+    previewContent.value = res.content
+    previewFilename.value = res.filename
+    previewFormat.value = res.format
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '预览失败')
+    previewVisible.value = false
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+async function handleRetryFromPreview() {
+  try {
+    await api.retryTask(previewTaskId.value)
+    ElMessage.success('已重新提交')
+    previewVisible.value = false
+    loadTasks()
+  } catch {
+    ElMessage.error('重试失败')
+  }
+}
+
+async function handleConvertDoc(row: TaskItem) {
+  try {
+    await api.convertDocToPdf(row.id)
+    ElMessage.success('转换完成，开始解析')
+    loadTasks()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '转换失败')
+  }
+}
+
+function handleFilterChange() {
+  page.value = 1
+  loadTasks()
+}
+
+function handleSearch() {
+  page.value = 1
+  loadTasks()
+}
+
+function handlePageChange(val: number) {
+  page.value = val
+  loadTasks()
+}
+
+function hasProcessing() {
+  return tasks.value.some((t) => t.status === 'pending' || t.status === 'processing')
+}
+
+function handleSelectionChange(rows: TaskItem[]) {
+  selectedIds.value = rows.map(r => r.id)
+}
+
+function formatTime(iso: string) {
+  if (!iso) return '-'
+  return new Date(iso).toLocaleString('zh-CN')
+}
+
+function formatSize(bytes: number) {
+  if (!bytes) return '-'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+function formatDuration(start: string | null, end: string | null) {
+  if (!start || !end) return '-'
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (ms < 0) return '-'
+  if (ms < 1000) return ms + 'ms'
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's'
+  return (ms / 60000).toFixed(1) + 'min'
+}
+
+onMounted(() => {
+  loadTasks()
+  timer = setInterval(() => { if (hasProcessing()) loadTasks() }, 5000)
+})
+onUnmounted(() => { if (timer) clearInterval(timer) })
+</script>
+
+<template>
+<el-card shadow="never" class="table-card">
+  <template #header>
+    <div class="card-header">
+      <span class="card-title">任务列表</span>
+      <div class="filter-row">
+        <el-input v-model="filterSearch" placeholder="搜索文件名" clearable style="width:160px" size="small" :prefix-icon="Search" @clear="handleSearch" @keyup.enter="handleSearch" />
+        <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width:130px" size="small" @change="handleFilterChange">
+          <el-option label="等待中" value="pending" />
+          <el-option label="处理中" value="processing" />
+          <el-option label="已完成" value="completed" />
+          <el-option label="失败" value="failed" />
+        </el-select>
+        <el-button v-if="selectedIds.length" type="danger" size="small" plain :icon="Delete" @click="handleBatchDelete">
+          删除选中 ({{ selectedIds.length }})
+        </el-button>
+        <el-button v-if="selectedIds.length" type="warning" size="small" plain :icon="RefreshRight" @click="handleBatchRetry">
+          重试选中 ({{ selectedIds.length }})
+        </el-button>
+        <el-button v-if="selectedIds.length" type="success" size="small" plain :icon="Switch" @click="handleBatchConvert">
+          转换选中 ({{ selectedIds.length }})
+        </el-button>
+        <el-button v-if="selectedIds.length" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
+          下载选中 ({{ selectedIds.length }})
+        </el-button>
+        <el-divider v-if="selectedIds.length" direction="vertical" />
+        <el-button size="small" plain :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-button>
+        <el-button size="small" plain :icon="Switch" @click="handleConvertAllDocs">转换当前页文档</el-button>
+      </div>
+    </div>
+  </template>
+
+  <el-skeleton v-if="firstLoad" :rows="8" animated />
+  <template v-else>
+  <el-table :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange">
+    <el-table-column type="selection" width="40" />
+    <el-table-column prop="id" label="ID" width="60" sortable />
+    <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>
+      <template #default="{ row }">
+        <span>{{ row.original_filename }}</span>
+        <el-tag v-if="isDocFile(row.original_filename) && row.pdf_path" type="success" size="small" style="margin-left:6px">已转PDF</el-tag>
+        <el-tag v-else-if="isDocFile(row.original_filename)" type="warning" size="small" style="margin-left:6px">待转换</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="大小" width="85" prop="file_size" sortable :sort-method="(a: TaskItem, b: TaskItem) => a.file_size - b.file_size">
+      <template #default="{ row }">{{ formatSize(row.file_size) }}</template>
+    </el-table-column>
+    <el-table-column label="状态" width="90" prop="status" sortable :sort-method="(a: TaskItem, b: TaskItem) => a.status.localeCompare(b.status)">
+      <template #default="{ row }">
+        <el-tag :type="statusTag[row.status]?.type" size="small">
+          {{ statusTag[row.status]?.label || row.status }}
+        </el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="格式" width="65">
+      <template #default="{ row }">.{{ row.output_format }}</template>
+    </el-table-column>
+    <el-table-column label="耗时" width="80">
+      <template #default="{ row }">{{ formatDuration(row.started_at, row.completed_at) }}</template>
+    </el-table-column>
+    <el-table-column label="创建时间" width="160" prop="created_at" sortable :sort-method="(a: TaskItem, b: TaskItem) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()">
+      <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+    </el-table-column>
+    <el-table-column label="操作" width="230" fixed="right">
+      <template #default="{ row }">
+        <el-tooltip v-if="isDocFile(row.original_filename) && !row.pdf_path" content="转换为PDF" placement="top">
+          <el-button size="small" type="warning" :icon="Switch" :disabled="row.status === 'processing'" @click="handleConvertDoc(row)" circle />
+        </el-tooltip>
+        <el-tooltip content="预览" placement="top">
+          <el-button size="small" type="success" :icon="View" :disabled="row.status !== 'completed'" @click="handlePreview(row)" circle />
+        </el-tooltip>
+        <el-tooltip content="下载" placement="top">
+          <el-button size="small" type="primary" :icon="Download" :disabled="row.status !== 'completed'" @click="handleDownload(row)" circle />
+        </el-tooltip>
+        <el-tooltip content="重试" placement="top">
+          <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click="handleRetry(row)" circle />
+        </el-tooltip>
+        <el-tooltip content="删除" placement="top">
+          <el-button size="small" type="danger" :icon="Delete" @click="handleDelete(row)" circle />
+        </el-tooltip>
+      </template>
+    </el-table-column>
+    <template #empty><el-empty description="暂无任务" /></template>
+  </el-table>
+
+  <div class="pagination-row" v-if="total > size">
+    <el-pagination background layout="prev, pager, next" :total="total" :page-size="size" :current-page="page" @current-change="handlePageChange" />
+  </div>
+  </template>
+  </el-card>
+
+<el-dialog v-model="previewVisible" :title="`预览 - ${previewFilename}`" width="75%" top="5vh" destroy-on-close>
+  <div v-loading="previewLoading" class="preview-container">
+    <div v-if="previewContent && previewFormat === 'md'" class="md-preview" v-html="renderMd(previewContent)" />
+    <pre v-else-if="previewContent" class="text-preview">{{ previewContent }}</pre>
+  </div>
+  <template #footer>
+    <el-button @click="previewVisible = false">关闭</el-button>
+    <el-button type="primary" @click="handleDownload({ id: previewTaskId } as TaskItem)">下载</el-button>
+    <el-button type="warning" @click="handleRetryFromPreview">重试</el-button>
+  </template>
+</el-dialog>
+</template>
+
+<style scoped>
+.table-card { border-radius: 10px; height: 100%; }
+.card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.card-header .filter-row { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card-title { font-weight: 600; }
+.pagination-row { display: flex; justify-content: center; margin-top: 16px; }
+.preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
+.md-preview { line-height: 1.8; color: #303133; }
+.md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 16px; }
+.md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 14px; }
+.md-preview :deep(h3) { font-size: 1.15em; margin-top: 12px; }
+.md-preview :deep(code) { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+.md-preview :deep(pre) { background: #f5f7fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+.md-preview :deep(pre code) { background: none; padding: 0; }
+.md-preview :deep(blockquote) { border-left: 4px solid #ddd; padding-left: 12px; color: #666; margin: 8px 0; }
+.md-preview :deep(table) { border-collapse: collapse; margin: 8px 0; }
+.md-preview :deep(th), .md-preview :deep(td) { border: 1px solid #ddd; padding: 6px 10px; }
+.md-preview :deep(th) { background: #f5f7fa; }
+.md-preview :deep(img) { margin: 8px 0; border-radius: 4px; max-width: 100%; }
+.md-preview :deep(hr) { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+.text-preview { white-space: pre-wrap; word-break: break-all; font-size: 13px; line-height: 1.7; margin: 0; }
+</style>
