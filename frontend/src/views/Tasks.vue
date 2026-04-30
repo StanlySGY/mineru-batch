@@ -47,6 +47,7 @@ const tasks = ref<TaskItem[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(20)
+const isMobile = ref(window.innerWidth <= 768)
 const filterStatus = ref('')
 const filterSearch = ref('')
 const loading = ref(false)
@@ -355,12 +356,18 @@ onMounted(() => {
       }
     }
   })
+  window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (clockTimer) clearInterval(clockTimer)
   if (sseClose) sseClose()
+  window.removeEventListener('resize', checkMobile)
 })
+
+function checkMobile() {
+  isMobile.value = window.innerWidth <= 768
+}
 </script>
 
 <template>
@@ -408,7 +415,7 @@ onUnmounted(() => {
     <span class="summary-spacer" />
     <el-button size="small" text @click="selectAllCurrent">全选当前页</el-button>
   </div>
-  <el-table :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
+  <el-table v-if="!isMobile" :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
     <el-table-column type="selection" width="40" />
     <el-table-column prop="id" label="ID" width="60" sortable />
     <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>
@@ -468,6 +475,31 @@ onUnmounted(() => {
     </el-table-column>
     <template #empty><el-empty description="暂无任务" /></template>
   </el-table>
+
+  <div v-else class="mobile-card-list">
+    <div v-if="loading" v-loading="true" style="min-height:120px" />
+    <div v-for="row in tasks" :key="row.id" class="mobile-task-card" @click="showDetail(row)">
+      <div class="mobile-card-top">
+        <span class="mobile-card-name">{{ row.original_filename }}</span>
+        <el-tag :type="statusTag[row.status]?.type" size="small">{{ statusTag[row.status]?.label || row.status }}</el-tag>
+      </div>
+      <div class="mobile-card-meta">
+        <span>#{{ row.id }}</span>
+        <span>{{ formatSize(row.file_size) }}</span>
+        <span>.{{ row.output_format }}</span>
+        <span :class="{ 'live-timer': isLive(row) }">{{ formatDuration(row.started_at, row.completed_at) }}</span>
+      </div>
+      <div class="mobile-card-time">{{ formatTime(row.created_at) }}</div>
+      <div v-if="row.status === 'failed' && row.error_message" class="mobile-card-error">{{ translateError(row.error_message).slice(0, 100) }}</div>
+      <div class="mobile-card-actions">
+        <el-button size="small" type="success" :icon="View" :disabled="row.status !== 'completed'" @click.stop="handlePreview(row)" circle />
+        <el-button size="small" type="primary" :icon="Download" :disabled="row.status !== 'completed'" @click.stop="handleDownload(row)" circle />
+        <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click.stop="handleRetry(row)" circle />
+        <el-button size="small" type="danger" :icon="Delete" @click.stop="handleDelete(row)" circle />
+      </div>
+    </div>
+    <el-empty v-if="!loading && !tasks.length" description="暂无任务" />
+  </div>
 
   <div class="pagination-row" v-if="total > size">
     <el-pagination
@@ -601,4 +633,16 @@ onUnmounted(() => {
 .detail-error { background: #fef0f0; border-radius: 6px; padding: 12px; }
 .detail-error pre { margin: 0; font-size: 12px; color: #c0392b; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 .detail-actions { display: flex; gap: 8px; margin-top: 20px; }
+.mobile-card-list { display: flex; flex-direction: column; gap: 10px; }
+.mobile-task-card {
+  background: #fff; border: 1px solid #ebeef5; border-radius: 8px; padding: 12px;
+  cursor: pointer; transition: box-shadow 0.2s;
+}
+.mobile-task-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.mobile-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.mobile-card-name { font-size: 14px; font-weight: 500; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.mobile-card-meta { display: flex; gap: 12px; font-size: 12px; color: #909399; margin-bottom: 4px; }
+.mobile-card-time { font-size: 12px; color: #c0c4cc; }
+.mobile-card-error { font-size: 12px; color: #f56c6c; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-card-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; }
 </style>
