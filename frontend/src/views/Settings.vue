@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref } from 'vue'
 import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { useConfig, type MineruEndpoint } from '../stores/config'
+import { useConfig } from '../stores/config'
 import { api } from '../api'
 
 const cfg = useConfig()

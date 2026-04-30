@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { UploadFilled, Document, Delete, Switch } from '@element-plus/icons-vue'
+import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { useConfig } from '../stores/config'

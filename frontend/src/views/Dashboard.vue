@@ -82,8 +82,8 @@ onUnmounted(() => {
 
 <template>
   <div class="dashboard" v-if="firstLoad">
-    <div class="stat-grid">
-      <el-skeleton v-for="i in 5" :key="i" animated style="border-radius:12px">
+    <div class="stat-row">
+      <el-skeleton v-for="i in 5" :key="i" animated style="border-radius:12px;flex:1">
         <template #template>
           <div style="padding:20px 24px;display:flex;align-items:center;gap:16px">
             <el-skeleton-item variant="circle" style="width:28px;height:28px" />
@@ -98,10 +98,10 @@ onUnmounted(() => {
     <el-skeleton :rows="5" animated style="margin-top:24px" />
   </div>
   <div class="dashboard" v-else v-loading="loading">
-  <div class="stat-grid">
+  <div class="stat-row">
     <div v-for="c in cards" :key="c.key" class="stat-card clickable" :style="{ background: c.bg }" @click="handleCardClick(c.route)">
       <div class="stat-icon" :style="{ color: c.color }">
-        <el-icon :size="28"><component :is="c.icon" /></el-icon>
+        <el-icon :size="24"><component :is="c.icon" /></el-icon>
       </div>
       <div class="stat-info">
         <div class="stat-value" :style="{ color: c.color }">{{ stats[c.key as keyof typeof stats] }}</div>
@@ -110,96 +110,102 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <div class="extra-stats">
-    <el-card shadow="never" class="rate-card">
-      <div class="rate-item">
-        <span class="rate-label">成功率</span>
-        <span class="rate-value success">{{ successRate }}</span>
+  <div class="content-grid">
+    <div class="left-col">
+      <div class="rate-bar">
+        <div class="rate-chip">
+          <span class="rate-dot success"></span>
+          <span class="rate-text">成功率 <strong>{{ successRate }}</strong></span>
+        </div>
+        <div class="rate-chip">
+          <span class="rate-dot danger"></span>
+          <span class="rate-text">失败率 <strong>{{ failureRate }}</strong></span>
+        </div>
+        <div class="rate-chip">
+          <span class="rate-dot warning"></span>
+          <span class="rate-text">处理中 <strong>{{ stats.processing }}</strong></span>
+        </div>
       </div>
-      <el-divider direction="vertical" />
-      <div class="rate-item">
-        <span class="rate-label">失败率</span>
-        <span class="rate-value danger">{{ failureRate }}</span>
-      </div>
-      <el-divider direction="vertical" />
-      <div class="rate-item">
-        <span class="rate-label">处理中</span>
-        <span class="rate-value warning">{{ stats.processing }}</span>
-      </div>
-    </el-card>
-  </div>
 
-  <div class="bottom-grid">
-    <el-card shadow="never" class="recent-card">
-      <template #header>
-        <span class="card-title">最近任务</span>
-      </template>
-      <el-table :data="recentTasks" stripe size="small">
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip />
-        <el-table-column label="状态" width="100">
-          <template #default="{ row }">
-            <el-tag :type="{ pending:'info', processing:'warning', completed:'success', failed:'danger' }[row.status]" size="small">
-              {{ statusLabel[row.status] || row.status }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="时间" width="170">
-          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
-        </el-table-column>
-      </el-table>
-    </el-card>
+      <el-card shadow="never" class="recent-card">
+        <template #header>
+          <span class="card-title">最近任务</span>
+        </template>
+        <el-table :data="recentTasks" stripe size="small">
+          <el-table-column prop="id" label="ID" width="70" />
+          <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip />
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="({ pending:'info', processing:'warning', completed:'success', failed:'danger' } as Record<string,string>)[row.status]" size="small">
+                {{ statusLabel[row.status] || row.status }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="时间" width="170">
+            <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
 
-    <el-card shadow="never" class="quick-card">
-      <template #header>
-        <span class="card-title">快捷操作</span>
-      </template>
-      <div class="quick-actions">
-        <el-button type="primary" size="large" :icon="UploadFilled" @click="router.push('/upload')" class="quick-btn">上传解析</el-button>
-        <el-button size="large" @click="router.push('/tasks?status=failed')" class="quick-btn">查看失败任务</el-button>
-        <el-button size="large" @click="router.push('/logs')" class="quick-btn">查看日志</el-button>
-      </div>
-    </el-card>
+    <div class="right-col">
+      <el-card shadow="never" class="quick-card">
+        <template #header>
+          <span class="card-title">快捷操作</span>
+        </template>
+        <div class="quick-actions">
+          <el-button type="primary" size="large" :icon="UploadFilled" @click="router.push('/upload')" class="quick-btn">上传解析</el-button>
+          <el-button size="large" @click="router.push('/tasks?status=failed')" class="quick-btn">查看失败任务</el-button>
+          <el-button size="large" @click="router.push('/logs')" class="quick-btn">查看日志</el-button>
+        </div>
+      </el-card>
+    </div>
   </div>
   </div>
 </template>
 
 <style scoped>
-.stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px; margin-bottom: 16px;
+.stat-row {
+  display: flex; gap: 16px; margin-bottom: 20px;
 }
 .stat-card {
-  border-radius: 12px; padding: 20px 24px;
-  display: flex; align-items: center; gap: 16px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  flex: 1; min-width: 0;
+  border-radius: 12px; padding: 18px 20px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .stat-card.clickable { cursor: pointer; }
 .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.12); }
 .stat-icon { display: flex; opacity: 0.9; }
-.stat-value { font-size: 28px; font-weight: 700; line-height: 1.2; }
-.stat-label { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+.stat-value { font-size: 24px; font-weight: 700; line-height: 1.2; }
+.stat-label { font-size: 12px; opacity: 0.85; margin-top: 2px; }
 
-.extra-stats { margin-bottom: 20px; }
-.rate-card { border-radius: 12px; }
-.rate-card :deep(.el-card__body) { display: flex; align-items: center; justify-content: center; gap: 24px; padding: 16px 24px; }
-.rate-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.rate-label { font-size: 12px; color: #909399; }
-.rate-value { font-size: 22px; font-weight: 700; }
-.rate-value.success { color: #67c23a; }
-.rate-value.danger { color: #f56c6c; }
-.rate-value.warning { color: #e6a23c; }
+.content-grid { display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
+.left-col { display: flex; flex-direction: column; gap: 16px; }
 
-.bottom-grid { display: grid; grid-template-columns: 1fr 320px; gap: 20px; }
-.recent-card { border-radius: 12px; }
+.rate-bar {
+  display: flex; gap: 20px; padding: 12px 20px;
+  background: #fff; border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+}
+.rate-chip { display: flex; align-items: center; gap: 6px; }
+.rate-dot { width: 8px; height: 8px; border-radius: 50%; }
+.rate-dot.success { background: #67c23a; }
+.rate-dot.danger { background: #f56c6c; }
+.rate-dot.warning { background: #e6a23c; }
+.rate-text { font-size: 13px; color: #606266; }
+.rate-text strong { font-size: 15px; }
+
+.recent-card { border-radius: 12px; flex: 1; }
 .quick-card { border-radius: 12px; }
 .quick-actions { display: flex; flex-direction: column; gap: 12px; }
 .quick-btn { width: 100%; }
 .card-title { font-weight: 600; }
 
-@media (max-width: 900px) {
-  .bottom-grid { grid-template-columns: 1fr; }
+@media (max-width: 1000px) {
+  .stat-row { flex-wrap: wrap; }
+  .stat-card { flex: 1 1 calc(50% - 12px); min-width: 140px; }
+  .content-grid { grid-template-columns: 1fr; }
 }
 </style>

@@ -237,10 +237,6 @@ function handlePageChange(val: number) {
   loadTasks()
 }
 
-function hasProcessing() {
-  return tasks.value.some((t) => t.status === 'pending' || t.status === 'processing')
-}
-
 function handleSelectionChange(rows: TaskItem[]) {
   selectedIds.value = rows.map(r => r.id)
 }

@@ -771,6 +771,7 @@ async def list_logs_grouped(
             "task_id": tid,
             "filename": task.original_filename if task else f"Task#{tid}",
             "status": task.status.value if task else "unknown",
+            "created_at": task.created_at.isoformat() if task and task.created_at else None,
             "logs": [l.to_dict() for l in logs],
         })
     return {"total": total, "items": groups}

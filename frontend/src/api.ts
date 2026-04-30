@@ -62,6 +62,7 @@ export interface LogGroup {
   task_id: number
   filename: string
   status: string
+  created_at: string | null
   logs: LogItem[]
 }
 
