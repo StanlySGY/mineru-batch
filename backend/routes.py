@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from models import (
     FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel,
     get_db, SessionLocal, add_log,
@@ -843,3 +843,17 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
                 n += 1
         cleaned["converted"] = n
     return {"detail": "cleaned", "counts": cleaned}
+
+
+@router.get("/stats/trend")
+async def get_stats_trend(days: int = Query(7, ge=1, le=30), db: Session = Depends(get_db)):
+    rows = db.execute(text("""
+        SELECT DATE(created_at) AS d,
+               SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+               SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+        FROM file_tasks
+        WHERE created_at >= DATE('now', '-' || :days || ' days')
+        GROUP BY DATE(created_at)
+        ORDER BY d
+    """), {"days": days}).fetchall()
+    return [{"date": r[0], "completed": r[1], "failed": r[2]} for r in rows]

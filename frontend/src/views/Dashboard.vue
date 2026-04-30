@@ -1,8 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import * as echarts from 'echarts/core'
+import { BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+
+echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, avg_duration_ms: 0 })
@@ -12,6 +18,9 @@ const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
 let timer: ReturnType<typeof setInterval> | null = null
 let sseClose: (() => void) | null = null
+
+const chartRef = shallowRef<echarts.ECharts | null>(null)
+const chartEl = ref<HTMLElement | null>(null)
 
 const cards = [
   { key: 'total', label: '总任务', icon: Files, color: '#fff', bg: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)', route: '/tasks' },
@@ -66,6 +75,26 @@ async function loadStats() {
   }
 }
 
+async function loadTrend() {
+  try {
+    const data = await api.getStatsTrend(7)
+    if (!chartRef.value) {
+      chartRef.value = echarts.init(chartEl.value!)
+    }
+    chartRef.value.setOption({
+      tooltip: { trigger: 'axis' },
+      legend: { data: ['完成', '失败'], top: 0, textStyle: { fontSize: 12 } },
+      grid: { top: 30, right: 16, bottom: 24, left: 36 },
+      xAxis: { type: 'category', data: data.map(d => d.date.slice(5)), axisLabel: { fontSize: 11 } },
+      yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 11 } },
+      series: [
+        { name: '完成', type: 'bar', data: data.map(d => d.completed), itemStyle: { color: '#67c23a' }, barMaxWidth: 24 },
+        { name: '失败', type: 'bar', data: data.map(d => d.failed), itemStyle: { color: '#f56c6c' }, barMaxWidth: 24 },
+      ],
+    })
+  } catch {}
+}
+
 function formatTime(iso: string) {
   if (!iso) return '-'
   return new Date(iso).toLocaleString('zh-CN')
@@ -86,15 +115,17 @@ const statusLabel: Record<string, string> = {
 }
 
 onMounted(() => {
-  loadStats()
+  loadStats().then(loadTrend)
   timer = setInterval(loadStats, 30000)
   sseClose = api.onTaskEvent((evt) => {
-    if (evt.type === 'task_update') loadStats()
+    if (evt.type === 'task_update') { loadStats(); loadTrend() }
   })
+  window.addEventListener('resize', () => chartRef.value?.resize())
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
   if (sseClose) sseClose()
+  chartRef.value?.dispose()
 })
 </script>
 
@@ -175,6 +206,12 @@ onUnmounted(() => {
     </div>
 
     <div class="right-col">
+      <el-card shadow="never" class="trend-card">
+        <template #header>
+          <span class="card-title">近 7 天趋势</span>
+        </template>
+        <div ref="chartEl" class="trend-chart"></div>
+      </el-card>
       <el-card shadow="never" class="quick-card">
         <template #header>
           <span class="card-title">快捷操作</span>
@@ -207,8 +244,9 @@ onUnmounted(() => {
 .stat-value { font-size: 24px; font-weight: 700; line-height: 1.2; }
 .stat-label { font-size: 12px; opacity: 0.85; margin-top: 2px; }
 
-.content-grid { display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
+.content-grid { display: grid; grid-template-columns: 1fr 380px; gap: 20px; }
 .left-col { display: flex; flex-direction: column; gap: 16px; }
+.right-col { display: flex; flex-direction: column; gap: 16px; }
 
 .rate-bar {
   display: flex; gap: 20px; padding: 12px 20px;
@@ -226,6 +264,8 @@ onUnmounted(() => {
 .rate-text strong { font-size: 15px; }
 
 .recent-card { border-radius: 12px; flex: 1; }
+.trend-card { border-radius: 12px; }
+.trend-chart { height: 200px; }
 .quick-card { border-radius: 12px; }
 .quick-actions { display: flex; flex-direction: column; gap: 12px; }
 .quick-btn { width: 100%; }

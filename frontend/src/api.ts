@@ -224,6 +224,11 @@ export const api = {
     return data as { detail: string; counts: Record<string, number> }
   },
 
+  async getStatsTrend(days = 7) {
+    const { data } = await http.get('/stats/trend', { params: { days } })
+    return data as { date: string; completed: number; failed: number }[]
+  },
+
   onTaskEvent(callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void): () => void {
     const es = new EventSource('/api/tasks/events')
     es.onmessage = (e) => {

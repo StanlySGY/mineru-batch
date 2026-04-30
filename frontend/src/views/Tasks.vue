@@ -51,6 +51,9 @@ const previewFilename = ref('')
 const previewFormat = ref('md')
 const previewTaskId = ref(0)
 
+const detailVisible = ref(false)
+const detailTask = ref<TaskItem | null>(null)
+
 const statusTag: Record<string, { type: 'info' | 'warning' | 'success' | 'danger'; label: string }> = {
   pending: { type: 'info', label: '等待中' },
   processing: { type: 'warning', label: '处理中' },
@@ -279,6 +282,20 @@ function selectAllCurrent() {
   selectedIds.value = tasks.value.map(r => r.id)
 }
 
+function showDetail(row: TaskItem) {
+  detailTask.value = row
+  detailVisible.value = true
+}
+
+const detailTimeline = computed(() => {
+  const t = detailTask.value
+  if (!t) return []
+  const items = [{ label: '创建', time: formatTime(t.created_at), icon: '📁' }]
+  if (t.started_at) items.push({ label: '开始处理', time: formatTime(t.started_at), icon: '⚙️' })
+  if (t.completed_at) items.push({ label: t.status === 'completed' ? '完成' : '失败', time: formatTime(t.completed_at), icon: t.status === 'completed' ? '✅' : '❌' })
+  return items
+})
+
 onMounted(() => {
   loadTasks()
   timer = setInterval(() => loadTasks(), 30000)
@@ -338,7 +355,7 @@ onUnmounted(() => {
     <span class="summary-spacer" />
     <el-button size="small" text @click="selectAllCurrent">全选当前页</el-button>
   </div>
-  <el-table :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange">
+  <el-table :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
     <el-table-column type="selection" width="40" />
     <el-table-column prop="id" label="ID" width="60" sortable />
     <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>
@@ -416,6 +433,56 @@ onUnmounted(() => {
     <el-button type="warning" @click="handleRetryFromPreview">重试</el-button>
   </template>
 </el-dialog>
+
+<el-drawer v-model="detailVisible" :title="`任务 #${detailTask?.id || ''} 详情`" size="420px" destroy-on-close>
+  <template v-if="detailTask">
+    <div class="detail-section">
+      <div class="detail-label">文件名</div>
+      <div class="detail-value">{{ detailTask.original_filename }}</div>
+    </div>
+    <div class="detail-row">
+      <div class="detail-section"><div class="detail-label">状态</div>
+        <el-tag :type="statusTag[detailTask.status]?.type" size="small">{{ statusTag[detailTask.status]?.label }}</el-tag>
+      </div>
+      <div class="detail-section"><div class="detail-label">大小</div><div class="detail-value">{{ formatSize(detailTask.file_size) }}</div></div>
+      <div class="detail-section"><div class="detail-label">输出格式</div><div class="detail-value">.{{ detailTask.output_format }}</div></div>
+    </div>
+
+    <el-divider content-position="left">时间线</el-divider>
+    <div class="detail-timeline">
+      <div v-for="(item, i) in detailTimeline" :key="i" class="timeline-item">
+        <span class="timeline-icon">{{ item.icon }}</span>
+        <div class="timeline-content">
+          <div class="timeline-label">{{ item.label }}</div>
+          <div class="timeline-time">{{ item.time }}</div>
+        </div>
+      </div>
+    </div>
+
+    <el-divider content-position="left">MinerU 参数</el-divider>
+    <div class="detail-params">
+      <div class="param-row"><span class="param-key">backend</span><span class="param-val">{{ detailTask.backend }}</span></div>
+      <div class="param-row"><span class="param-key">parse_method</span><span class="param-val">{{ detailTask.parse_method }}</span></div>
+      <div class="param-row"><span class="param-key">lang_list</span><span class="param-val">{{ detailTask.lang_list }}</span></div>
+      <div class="param-row"><span class="param-key">mineru_api</span><span class="param-val param-long">{{ detailTask.mineru_api }}</span></div>
+      <div class="param-row"><span class="param-key">server_url</span><span class="param-val param-long">{{ detailTask.server_url }}</span></div>
+      <div class="param-row"><span class="param-key">timeout</span><span class="param-val">{{ detailTask.timeout }}s</span></div>
+      <div class="param-row"><span class="param-key">formula_enable</span><span class="param-val">{{ detailTask.formula_enable }}</span></div>
+      <div class="param-row"><span class="param-key">table_enable</span><span class="param-val">{{ detailTask.table_enable }}</span></div>
+    </div>
+
+    <template v-if="detailTask.error_message">
+      <el-divider content-position="left">错误信息</el-divider>
+      <div class="detail-error"><pre>{{ detailTask.error_message }}</pre></div>
+    </template>
+
+    <div class="detail-actions">
+      <el-button type="primary" :disabled="detailTask.status !== 'completed'" @click="handleDownload(detailTask); detailVisible = false">下载结果</el-button>
+      <el-button type="success" :disabled="detailTask.status !== 'completed'" @click="handlePreview(detailTask); detailVisible = false">预览结果</el-button>
+      <el-button type="warning" :disabled="detailTask.status !== 'failed' && detailTask.status !== 'completed'" @click="handleRetry(detailTask); detailVisible = false">重试</el-button>
+    </div>
+  </template>
+</el-drawer>
 </template>
 
 <style scoped>
@@ -446,4 +513,23 @@ onUnmounted(() => {
 .md-preview :deep(img) { margin: 8px 0; border-radius: 4px; max-width: 100%; }
 .md-preview :deep(hr) { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
 .text-preview { white-space: pre-wrap; word-break: break-all; font-size: 13px; line-height: 1.7; margin: 0; }
+.task-table { cursor: pointer; }
+.detail-row { display: flex; gap: 16px; }
+.detail-section { margin-bottom: 12px; }
+.detail-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.detail-value { font-size: 14px; color: #303133; word-break: break-all; }
+.detail-timeline { display: flex; flex-direction: column; gap: 10px; padding-left: 4px; }
+.timeline-item { display: flex; align-items: flex-start; gap: 10px; }
+.timeline-icon { font-size: 16px; flex-shrink: 0; width: 24px; text-align: center; }
+.timeline-content { flex: 1; }
+.timeline-label { font-size: 13px; color: #303133; font-weight: 500; }
+.timeline-time { font-size: 12px; color: #909399; }
+.detail-params { display: flex; flex-direction: column; gap: 6px; }
+.param-row { display: flex; gap: 8px; font-size: 13px; }
+.param-key { color: #909399; width: 100px; flex-shrink: 0; }
+.param-val { color: #303133; word-break: break-all; }
+.param-long { font-size: 12px; }
+.detail-error { background: #fef0f0; border-radius: 6px; padding: 12px; }
+.detail-error pre { margin: 0; font-size: 12px; color: #c0392b; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+.detail-actions { display: flex; gap: 8px; margin-top: 20px; }
 </style>
