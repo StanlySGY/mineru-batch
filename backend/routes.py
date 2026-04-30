@@ -280,8 +280,22 @@ def _process_task_sync(task_id: int):
             out_path = os.path.join(OUTPUT_DIR, out_name)
             counter += 1
 
+        output_content = md_content
+        if ext == "html":
+            output_content = (
+                '<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">'
+                f'<title>{original_stem}</title>'
+                '<style>body{max-width:900px;margin:40px auto;font-family:system-ui,sans-serif;line-height:1.8;color:#333;padding:0 20px}'
+                'code{background:#f4f4f4;padding:2px 6px;border-radius:3px}pre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto}'
+                'table{border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px}th{background:#f8f8f8}'
+                'blockquote{border-left:4px solid #ddd;padding-left:16px;color:#666;margin:12px 0}'
+                'img{max-width:100%;border-radius:4px}</style></head><body>'
+                f'<pre style="white-space:pre-wrap;word-break:break-word">{md_content}</pre>'
+                '</body></html>'
+            )
+
         with open(out_path, "w", encoding="utf-8") as f:
-            f.write(md_content)
+            f.write(output_content)
 
         add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
         task.output_path = out_path
@@ -427,8 +441,8 @@ async def upload_files(
     auto_convert: str = Form("true"),
     db: Session = Depends(get_db),
 ):
-    if output_format not in ("md", "txt"):
-        raise HTTPException(400, "output_format must be md or txt")
+    if output_format not in ("md", "txt", "html"):
+        raise HTTPException(400, "output_format must be md, txt or html")
 
     def _b(val: str) -> bool:
         return val.lower() in ("true", "1", "yes")

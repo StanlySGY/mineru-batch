@@ -17,6 +17,7 @@ class TaskStatus(str, enum.Enum):
 class OutputFormat(str, enum.Enum):
     MD = "md"
     TXT = "txt"
+    HTML = "html"
 
 
 class LogLevel(str, enum.Enum):

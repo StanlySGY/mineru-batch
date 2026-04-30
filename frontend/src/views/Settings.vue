@@ -303,6 +303,7 @@ const paramTable = [
         <el-radio-group v-model="cfg.outputFormat.value">
           <el-radio-button value="md">Markdown (.md)</el-radio-button>
           <el-radio-button value="txt">纯文本 (.txt)</el-radio-button>
+          <el-radio-button value="html">HTML (.html)</el-radio-button>
         </el-radio-group>
       </el-form-item>
 
