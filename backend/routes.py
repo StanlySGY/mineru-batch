@@ -173,10 +173,15 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
             add_log(f"文件读取完成，大小 {len(file_data)} 字节", task_id=task_id)
             form_data = _build_mineru_form(task)
             add_log(f"发送参数", task_id=task_id, detail=json.dumps(form_data, ensure_ascii=False))
+            headers = {}
+            api_key = task.api_key if hasattr(task, 'api_key') else None
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             resp = client.post(
                 api_url,
                 files={"files": (os.path.basename(file_to_parse), file_data, "application/octet-stream")},
                 data=form_data,
+                headers=headers,
             )
             add_log(f"MinerU 响应: HTTP {resp.status_code}", task_id=task_id,
                     level="info" if resp.status_code == 200 else "error",
@@ -485,6 +490,7 @@ async def upload_files(
             output_format=OutputFormat(output_format),
             timeout=_timeout,
             auto_convert_doc=_b(auto_convert),
+            api_key=ep.get("apiKey") if ep else None,
         )
         db.add(task)
         db.commit()

@@ -256,6 +256,9 @@ const paramTable = [
               <el-input v-model="ep.serverUrl" placeholder="http://host:port/v1" />
             </el-form-item>
           </div>
+          <el-form-item label="API Key (可选)">
+            <el-input v-model="ep.apiKey" placeholder="留空则不发送认证头" show-password clearable />
+          </el-form-item>
         </el-form>
       </div>
     </div>

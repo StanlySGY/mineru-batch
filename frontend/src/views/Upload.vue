@@ -58,7 +58,7 @@ async function handleUpload() {
   uploadProgress.value = 0
   try {
     const enabledEndpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
-    const endpointsStr = enabledEndpoints.length > 1 ? JSON.stringify(enabledEndpoints) : undefined
+    const endpointsStr = enabledEndpoints.length > 0 ? JSON.stringify(enabledEndpoints) : undefined
     const res = await api.upload(rawFiles, {
       backend: cfg.backend.value,
       mineruApi: cfg.mineruApi.value,
@@ -129,6 +129,21 @@ async function handleUpload() {
           <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB</div>
         </template>
       </el-upload>
+
+      <div class="folder-upload-hint">
+        <el-upload
+          v-model:file-list="fileList"
+          :auto-upload="false"
+          :limit="200"
+          :on-exceed="handleExceed"
+          :before-upload="beforeUpload"
+          webkitdirectory
+          class="folder-btn"
+          :show-file-list="false"
+        >
+          <el-button size="small" plain>选择文件夹上传</el-button>
+        </el-upload>
+      </div>
 
       <div v-if="fileList.length" class="file-list-section">
         <div class="file-list-header">
@@ -277,6 +292,7 @@ async function handleUpload() {
 .doc-tag { flex-shrink: 0; }
 .file-remove { flex-shrink: 0; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
+.folder-upload-hint { display: flex; justify-content: center; margin-top: 8px; }
 
 @media (max-width: 800px) {
   .upload-page { grid-template-columns: 1fr; }

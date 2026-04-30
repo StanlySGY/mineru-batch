@@ -5,6 +5,7 @@ export interface MineruEndpoint {
   backend: string
   serverUrl: string
   enabled: boolean
+  apiKey?: string
 }
 
 const LS = {

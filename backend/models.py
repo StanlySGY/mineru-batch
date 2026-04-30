@@ -54,6 +54,7 @@ class FileTask(Base):
     replace_image_url = Column(Boolean, default=True)
     start_page_id = Column(Integer, default=0)
     end_page_id = Column(Integer, default=99999)
+    api_key = Column(String(256), nullable=True)
     # output
     output_format = Column(Enum(OutputFormat), default=OutputFormat.MD)
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, index=True)
