@@ -94,6 +94,16 @@ export const api = {
     return data as { total: number; pending: number; processing: number; completed: number; failed: number }
   },
 
+  async getConcurrency() {
+    const { data } = await http.get('/concurrency')
+    return data as { concurrency: number }
+  },
+
+  async setConcurrency(n: number) {
+    const { data } = await http.put('/concurrency', { concurrency: n })
+    return data as { concurrency: number }
+  },
+
   async upload(files: File[], opts: UploadOptions, onProgress?: (pct: number) => void) {
     const form = new FormData()
     files.forEach((f) => form.append('files', f))
@@ -160,6 +170,11 @@ export const api = {
     return data
   },
 
+  async cancelTask(id: number) {
+    const { data } = await http.post(`/tasks/${id}/cancel`)
+    return data
+  },
+
   async convertDocToPdf(id: number) {
     const { data } = await http.post(`/tasks/${id}/convert`)
     return data
@@ -196,5 +211,14 @@ export const api = {
   async testConnection(params: { mineru_api: string; server_url: string }) {
     const { data } = await http.post('/test-connection', params)
     return data as { ok: boolean; detail?: string; error?: string }
+  },
+
+  onTaskEvent(callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void): () => void {
+    const es = new EventSource('/api/tasks/events')
+    es.onmessage = (e) => {
+      try { callback(JSON.parse(e.data)) } catch {}
+    }
+    es.onerror = () => { es.close() }
+    return () => es.close()
   },
 }

@@ -11,6 +11,8 @@ import traceback
 import asyncio
 import aiofiles
 import httpx
+import json as _json
+import typing
 from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
@@ -36,6 +38,32 @@ _lo_lock = threading.Lock()
 _rr_counter = 0
 _rr_lock = threading.Lock()
 _task_semaphore = asyncio.Semaphore(5)
+_cancelled_tasks: set[int] = set()
+_cancel_lock = threading.Lock()
+_max_concurrency = 5
+
+
+def set_concurrency(n: int):
+    global _task_semaphore, _max_concurrency
+    _max_concurrency = max(1, min(n, 20))
+    _task_semaphore = asyncio.Semaphore(_max_concurrency)
+
+# SSE 事件总线
+_sse_subscribers: list[asyncio.Queue] = []
+_sse_lock = asyncio.Lock()
+
+
+def _emit_event(event_type: str, task_id: int, data: dict = None):
+    payload = _json.dumps({"type": event_type, "task_id": task_id, **(data or {})}, ensure_ascii=False)
+    for q in _sse_subscribers:
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            pass
+
+
+def _notify_task_change(task_id: int, status: str, **extra):
+    _emit_event("task_update", task_id, {"status": status, **extra})
 
 
 def _pick_endpoint(endpoints: list[dict]) -> dict:
@@ -182,11 +210,16 @@ def _extract_md_from_result(result: dict, original_filename: str) -> str:
     return ""
 
 
+def _is_cancelled(task_id: int) -> bool:
+    with _cancel_lock:
+        return task_id in _cancelled_tasks
+
+
 def _process_task_sync(task_id: int):
     db = SessionLocal()
     try:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
-        if not task:
+        if not task or _is_cancelled(task_id):
             return
 
         file_to_parse = task.file_path
@@ -205,10 +238,23 @@ def _process_task_sync(task_id: int):
                 except Exception as e:
                     raise RuntimeError(f"文档转 PDF 失败: {e}")
 
+        if _is_cancelled(task_id):
+            task.status = TaskStatus.FAILED
+            task.error_message = "任务已取消"
+            db.commit()
+            return
+
         task.status = TaskStatus.PROCESSING
         task.started_at = datetime.now(timezone.utc)
         db.commit()
         add_log(f"任务开始处理", task_id=task_id)
+        _notify_task_change(task_id, "processing")
+
+        if _is_cancelled(task_id):
+            task.status = TaskStatus.FAILED
+            task.error_message = "任务已取消"
+            db.commit()
+            return
 
         result = _call_mineru_sync(task, task_id, file_to_parse)
 
@@ -237,6 +283,7 @@ def _process_task_sync(task_id: int):
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
+        _notify_task_change(task_id, "completed")
     except Exception as e:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
         if task:
@@ -245,13 +292,30 @@ def _process_task_sync(task_id: int):
             task.completed_at = datetime.now(timezone.utc)
             db.commit()
             add_log(f"任务失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
+            _notify_task_change(task_id, "failed", error_message=str(e))
     finally:
+        with _cancel_lock:
+            _cancelled_tasks.discard(task_id)
         db.close()
 
 
 async def _process_task(task_id: int):
     async with _task_semaphore:
         await asyncio.to_thread(_process_task_sync, task_id)
+
+
+@router.get("/concurrency")
+async def get_concurrency():
+    return {"concurrency": _max_concurrency}
+
+
+@router.put("/concurrency")
+async def set_concurrency_endpoint(body: dict):
+    n = body.get("concurrency", 5)
+    if not isinstance(n, int) or n < 1 or n > 20:
+        raise HTTPException(400, "concurrency must be 1-20")
+    set_concurrency(n)
+    return {"concurrency": _max_concurrency}
 
 
 @router.post("/test-connection")
@@ -293,6 +357,27 @@ async def get_stats(db: Session = Depends(get_db)):
         "completed": status_map.get("completed", 0),
         "failed": status_map.get("failed", 0),
     }
+
+
+@router.get("/tasks/events")
+async def task_events():
+    async def _stream():
+        q: asyncio.Queue = asyncio.Queue(maxsize=128)
+        async with _sse_lock:
+            _sse_subscribers.append(q)
+        try:
+            yield f"data: {_json.dumps({'type': 'connected'})}\n\n"
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=30)
+                    yield f"data: {msg}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            async with _sse_lock:
+                if q in _sse_subscribers:
+                    _sse_subscribers.remove(q)
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 MAX_FILE_SIZE = 200 * 1024 * 1024
@@ -384,6 +469,7 @@ async def upload_files(
         db.refresh(task)
         results.append(task.to_dict())
         add_log(f"文件上传成功: {file.filename}", task_id=task.id)
+        _notify_task_change(task.id, "pending")
 
         if _is_doc_file(file.filename) and not _b(auto_convert):
             add_log(f"文档格式文件，等待手动转换为 PDF", task_id=task.id)
@@ -577,6 +663,23 @@ async def update_task(
         task.timeout = int(timeout)
     db.commit()
     db.refresh(task)
+    return task.to_dict()
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(FileTask).filter(FileTask.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.status not in (TaskStatus.PENDING, TaskStatus.PROCESSING):
+        raise HTTPException(400, "只能取消等待中或处理中的任务")
+    with _cancel_lock:
+        _cancelled_tasks.add(task_id)
+    task.status = TaskStatus.FAILED
+    task.error_message = "用户取消"
+    task.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    add_log(f"任务已取消", task_id=task_id, level="warn")
     return task.to_dict()
 
 

@@ -4,7 +4,7 @@ import { UploadFilled, Document, Delete, Switch } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { useConfig } from '../stores/config'
-import { isDocFile, ALLOWED_EXTENSIONS } from '../utils/file'
+import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
 import { useRouter } from 'vue-router'
 import type { UploadUserFile, UploadProps } from 'element-plus'
 
@@ -20,6 +20,14 @@ const hasDocFiles = computed(() => fileList.value.some(f => isDocFile(f.name)))
 
 const handleExceed: UploadProps['onExceed'] = () => {
   ElMessage.warning('最多上传 50 个文件')
+}
+
+const beforeUpload: UploadProps['beforeUpload'] = (rawFile) => {
+  if (rawFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+    ElMessage.error(`文件 "${rawFile.name}" 超过 ${MAX_FILE_SIZE_MB}MB 大小限制`)
+    return false
+  }
+  return true
 }
 
 async function handleUpload() {
@@ -89,6 +97,7 @@ async function handleUpload() {
         :limit="50"
         :accept="ALLOWED_EXTENSIONS"
         :on-exceed="handleExceed"
+        :before-upload="beforeUpload"
         drag
         class="upload-dragger"
       >

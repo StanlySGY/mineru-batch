@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch } from '@element-plus/icons-vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem } from '../api'
 import { isDocFile } from '../utils/file'
@@ -22,8 +22,19 @@ const filterSearch = ref('')
 const loading = ref(false)
 const firstLoad = ref(true)
 let timer: ReturnType<typeof setInterval> | null = null
+let sseClose: (() => void) | null = null
 
 const selectedIds = ref<number[]>([])
+
+const selectedHasRetryable = computed(() =>
+  selectedIds.value.some(id => { const t = tasks.value.find(r => r.id === id); return t && (t.status === 'failed' || t.status === 'completed') })
+)
+const selectedHasConvertible = computed(() =>
+  selectedIds.value.some(id => { const t = tasks.value.find(r => r.id === id); return t && isDocFile(t.original_filename) && !t.pdf_path })
+)
+const selectedHasDownloadable = computed(() =>
+  selectedIds.value.some(id => { const t = tasks.value.find(r => r.id === id); return t && t.status === 'completed' })
+)
 
 const previewVisible = ref(false)
 const previewLoading = ref(false)
@@ -151,6 +162,15 @@ async function handleRetry(row: TaskItem) {
   }
 }
 
+async function handleCancel(row: TaskItem) {
+  try {
+    await ElMessageBox.confirm(`确定取消任务 "${row.original_filename}"？`, '确认', { type: 'warning' })
+    await api.cancelTask(row.id)
+    ElMessage.success('已取消')
+    loadTasks()
+  } catch {}
+}
+
 function handleDownload(row: TaskItem) {
   const a = document.createElement('a')
   a.href = api.downloadUrl(row.id)
@@ -248,9 +268,15 @@ function formatDuration(start: string | null, end: string | null) {
 
 onMounted(() => {
   loadTasks()
-  timer = setInterval(() => { if (hasProcessing()) loadTasks() }, 5000)
+  timer = setInterval(() => loadTasks(), 30000)
+  sseClose = api.onTaskEvent((evt) => {
+    if (evt.type === 'task_update') loadTasks()
+  })
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => {
+  if (timer) clearInterval(timer)
+  if (sseClose) sseClose()
+})
 </script>
 
 <template>
@@ -269,14 +295,14 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <el-button v-if="selectedIds.length" type="danger" size="small" plain :icon="Delete" @click="handleBatchDelete">
           删除选中 ({{ selectedIds.length }})
         </el-button>
-        <el-button v-if="selectedIds.length" type="warning" size="small" plain :icon="RefreshRight" @click="handleBatchRetry">
-          重试选中 ({{ selectedIds.length }})
+        <el-button v-if="selectedHasRetryable" type="warning" size="small" plain :icon="RefreshRight" @click="handleBatchRetry">
+          重试选中
         </el-button>
-        <el-button v-if="selectedIds.length" type="success" size="small" plain :icon="Switch" @click="handleBatchConvert">
-          转换选中 ({{ selectedIds.length }})
+        <el-button v-if="selectedHasConvertible" type="success" size="small" plain :icon="Switch" @click="handleBatchConvert">
+          转换选中
         </el-button>
-        <el-button v-if="selectedIds.length" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
-          下载选中 ({{ selectedIds.length }})
+        <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
+          下载选中
         </el-button>
         <el-divider v-if="selectedIds.length" direction="vertical" />
         <el-button size="small" plain :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-button>
@@ -300,9 +326,14 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <el-table-column label="大小" width="85" prop="file_size" sortable :sort-method="(a: TaskItem, b: TaskItem) => a.file_size - b.file_size">
       <template #default="{ row }">{{ formatSize(row.file_size) }}</template>
     </el-table-column>
-    <el-table-column label="状态" width="90" prop="status" sortable :sort-method="(a: TaskItem, b: TaskItem) => a.status.localeCompare(b.status)">
+    <el-table-column label="状态" width="120" prop="status" sortable :sort-method="(a: TaskItem, b: TaskItem) => a.status.localeCompare(b.status)">
       <template #default="{ row }">
-        <el-tag :type="statusTag[row.status]?.type" size="small">
+        <el-tooltip v-if="row.status === 'failed' && row.error_message" :content="row.error_message" placement="top">
+          <el-tag :type="statusTag[row.status]?.type" size="small" style="cursor:help">
+            {{ statusTag[row.status]?.label || row.status }}
+          </el-tag>
+        </el-tooltip>
+        <el-tag v-else :type="statusTag[row.status]?.type" size="small">
           {{ statusTag[row.status]?.label || row.status }}
         </el-tag>
       </template>
@@ -316,7 +347,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <el-table-column label="创建时间" width="160" prop="created_at" sortable :sort-method="(a: TaskItem, b: TaskItem) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()">
       <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
     </el-table-column>
-    <el-table-column label="操作" width="230" fixed="right">
+    <el-table-column label="操作" width="280" fixed="right">
       <template #default="{ row }">
         <el-tooltip v-if="isDocFile(row.original_filename) && !row.pdf_path" content="转换为PDF" placement="top">
           <el-button size="small" type="warning" :icon="Switch" :disabled="row.status === 'processing'" @click="handleConvertDoc(row)" circle />
@@ -329,6 +360,9 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </el-tooltip>
         <el-tooltip content="重试" placement="top">
           <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click="handleRetry(row)" circle />
+        </el-tooltip>
+        <el-tooltip content="取消" placement="top">
+          <el-button size="small" type="info" :icon="CircleClose" :disabled="row.status !== 'pending' && row.status !== 'processing'" @click="handleCancel(row)" circle />
         </el-tooltip>
         <el-tooltip content="删除" placement="top">
           <el-button size="small" type="danger" :icon="Delete" @click="handleDelete(row)" circle />

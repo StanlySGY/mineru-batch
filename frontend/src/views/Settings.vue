@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Connection, Plus, Delete } from '@element-plus/icons-vue'
+import { ref, reactive } from 'vue'
+import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useConfig, type MineruEndpoint } from '../stores/config'
 import { api } from '../api'
@@ -8,15 +8,37 @@ import { api } from '../api'
 const cfg = useConfig()
 
 const testing = ref<number | null>(null)
+const nodeLatency = ref<Record<number, string>>({})
+const concurrency = ref(5)
+
+async function loadConcurrency() {
+  try {
+    const res = await api.getConcurrency()
+    concurrency.value = res.concurrency
+  } catch {}
+}
+
+async function handleConcurrencyChange() {
+  try {
+    await api.setConcurrency(concurrency.value)
+    ElMessage.success(`并发数已设置为 ${concurrency.value}`)
+  } catch {
+    ElMessage.error('设置并发数失败')
+  }
+}
 
 async function handleTestEndpoint(idx: number) {
   const ep = cfg.mineruEndpoints.value[idx]
   if (!ep) return
   testing.value = idx
+  const start = Date.now()
   try {
     const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
-    ElMessage.success(res.ok ? `节点 ${idx + 1} 连接正常` : `节点 ${idx + 1} 异常: ${res.error || '未知错误'}`)
+    const latency = Date.now() - start
+    nodeLatency.value[idx] = `${latency}ms`
+    ElMessage.success(res.ok ? `节点 ${idx + 1} 连接正常 (${latency}ms)` : `节点 ${idx + 1} 异常: ${res.error || '未知错误'}`)
   } catch (e: any) {
+    nodeLatency.value[idx] = '超时'
     ElMessage.error(e?.response?.data?.detail || '测试连接失败')
   } finally {
     testing.value = null
@@ -41,6 +63,61 @@ function handleReset() {
   cfg.resetDefaults()
   ElMessage.success('已恢复默认配置')
 }
+
+function handleExportConfig() {
+  const config: Record<string, unknown> = {}
+  const keys = ['backend', 'mineruApi', 'serverUrl', 'outputFormat', 'parseMethod', 'langList',
+    'formulaEnable', 'tableEnable', 'returnMd', 'returnMiddleJson', 'returnModelOutput',
+    'returnContentList', 'returnImages', 'responseFormatZip', 'replaceImageUrl',
+    'startPageId', 'endPageId', 'timeout', 'autoConvert'] as const
+  for (const k of keys) config[k] = (cfg as any)[k]?.value
+  config['mineruEndpoints'] = cfg.mineruEndpoints.value
+  const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = 'mineru-batch-config.json'
+  a.click()
+  URL.revokeObjectURL(a.href)
+  ElMessage.success('配置已导出')
+}
+
+function handleImportConfig() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.json'
+  input.onchange = async (e: Event) => {
+    const file = (e.target as HTMLInputElement).files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const config = JSON.parse(text)
+      const map: Record<string, string> = {
+        backend: 'cfg_backend', mineruApi: 'cfg_mineru_api', serverUrl: 'cfg_server_url',
+        outputFormat: 'cfg_output_format', parseMethod: 'cfg_parse_method', langList: 'cfg_lang_list',
+        formulaEnable: 'cfg_formula_enable', tableEnable: 'cfg_table_enable',
+        returnMd: 'cfg_return_md', returnMiddleJson: 'cfg_return_middle_json',
+        returnModelOutput: 'cfg_return_model_output', returnContentList: 'cfg_return_content_list',
+        returnImages: 'cfg_return_images', responseFormatZip: 'cfg_response_format_zip',
+        replaceImageUrl: 'cfg_replace_image_url', startPageId: 'cfg_start_page_id',
+        endPageId: 'cfg_end_page_id', timeout: 'cfg_timeout', autoConvert: 'cfg_auto_convert',
+      }
+      for (const [k, lsKey] of Object.entries(map)) {
+        if (config[k] !== undefined) {
+          localStorage.setItem(lsKey, String(config[k]))
+        }
+      }
+      if (Array.isArray(config.mineruEndpoints)) {
+        localStorage.setItem('cfg_mineru_endpoints', JSON.stringify(config.mineruEndpoints))
+      }
+      window.location.reload()
+    } catch {
+      ElMessage.error('导入失败：无效的配置文件')
+    }
+  }
+  input.click()
+}
+
+loadConcurrency()
 
 const paramTable = [
   { param: 'files', desc: '上传的文件', type: 'file' },
@@ -73,6 +150,8 @@ const paramTable = [
         <span class="card-title">MinerU 服务节点</span>
         <div class="header-actions">
           <el-button size="small" :icon="Plus" @click="addEndpoint">添加节点</el-button>
+          <el-button size="small" :icon="Download" @click="handleExportConfig">导出配置</el-button>
+          <el-button size="small" :icon="Upload" @click="handleImportConfig">导入配置</el-button>
           <el-button size="small" @click="handleReset">恢复默认</el-button>
         </div>
       </div>
@@ -89,6 +168,7 @@ const paramTable = [
           <span class="endpoint-label">节点 {{ idx + 1 }}</span>
           <el-tag v-if="ep.enabled" type="success" size="small">启用</el-tag>
           <el-tag v-else type="info" size="small">禁用</el-tag>
+          <el-tag v-if="nodeLatency[idx]" :type="nodeLatency[idx] === '超时' ? 'danger' : 'success'" size="small" effect="plain">{{ nodeLatency[idx] }}</el-tag>
           <div class="endpoint-actions">
             <el-button size="small" :icon="Connection" :loading="testing === idx" @click="handleTestEndpoint(idx)" />
             <el-button size="small" type="danger" :icon="Delete" @click="removeEndpoint(idx)" plain />
@@ -147,6 +227,11 @@ const paramTable = [
       <el-form-item label="文档自动转 PDF">
         <el-switch v-model="cfg.autoConvert.value" />
         <div class="form-tip">关闭后，Word/PPT/Excel 文件需在任务列表手动点击转换</div>
+      </el-form-item>
+
+      <el-form-item label="并发处理数">
+        <el-input-number v-model="concurrency" :min="1" :max="20" :step="1" @change="handleConcurrencyChange" />
+        <div class="form-tip">同时处理的任务数（1~20），增大可提高吞吐但会占用更多资源</div>
       </el-form-item>
 
       <el-divider content-position="left">开关选项</el-divider>
