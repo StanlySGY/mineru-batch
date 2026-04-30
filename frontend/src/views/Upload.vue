@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
+import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
 import { useRouter } from 'vue-router'
@@ -81,6 +82,7 @@ async function handleUpload() {
       autoConvert: cfg.autoConvert.value,
     }, (pct) => { uploadProgress.value = pct })
     ElMessage.success(`已提交 ${res.tasks.length} 个解析任务`)
+    requestNotificationPermission()
     fileList.value = []
     router.push('/tasks')
   } catch (e: any) {

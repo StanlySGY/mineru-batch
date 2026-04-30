@@ -89,6 +89,21 @@ export interface UploadOptions {
   autoConvert: boolean
 }
 
+export function requestNotificationPermission(): boolean {
+  if (!('Notification' in window)) return false
+  if (Notification.permission === 'granted') return true
+  if (Notification.permission === 'denied') return false
+  Notification.requestPermission()
+  return Notification.permission === 'granted'
+}
+
+export function notifyTaskComplete(filename: string, status: string) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+  const title = status === 'completed' ? '任务完成' : '任务失败'
+  const body = status === 'completed' ? `${filename} 解析完成` : `${filename} 解析失败`
+  new Notification(title, { body })
+}
+
 export const api = {
   async getStats() {
     const { data } = await http.get('/stats')

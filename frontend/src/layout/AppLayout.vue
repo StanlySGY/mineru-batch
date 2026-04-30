@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   DataAnalysis, UploadFilled, List, Document, Setting, Expand, Fold,
 } from '@element-plus/icons-vue'
+import { api } from '../api'
 
 const router = useRouter()
 const route = useRoute()
 const collapsed = ref(false)
+const sseConnected = ref(false)
+const concurrency = ref(0)
 
 const navItems = [
   { path: '/dashboard', icon: DataAnalysis, label: '概览' },
@@ -23,6 +26,14 @@ const sidebarWidth = computed(() => (collapsed.value ? '64px' : '220px'))
 function navigate(path: string) {
   router.push(path)
 }
+
+let sseClose: (() => void) | null = null
+onMounted(() => {
+  api.getConcurrency().then(r => concurrency.value = r.concurrency).catch(() => {})
+  sseClose = api.onTaskEvent(() => { sseConnected.value = true })
+  setTimeout(() => { if (!sseConnected.value) sseConnected.value = false }, 5000)
+})
+onUnmounted(() => { if (sseClose) sseClose() })
 </script>
 
 <template>
@@ -76,6 +87,13 @@ function navigate(path: string) {
           <component :is="collapsed ? Expand : Fold" />
         </el-icon>
         <div class="topbar-title">{{ route.meta.title }}</div>
+      </div>
+      <div class="topbar-right">
+        <el-tag v-if="concurrency" size="small" effect="plain" type="info">并发 {{ concurrency }}</el-tag>
+        <span class="sse-status" :class="{ connected: sseConnected }">
+          <span class="sse-dot"></span>
+          {{ sseConnected ? '在线' : '离线' }}
+        </span>
       </div>
     </header>
 
@@ -160,6 +178,12 @@ function navigate(path: string) {
 .mobile-collapse:hover { color: #409eff; }
 
 .topbar-title { font-size: 16px; font-weight: 600; color: #303133; }
+
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.sse-status { font-size: 12px; color: #909399; display: flex; align-items: center; gap: 4px; }
+.sse-status.connected { color: #67c23a; }
+.sse-dot { width: 6px; height: 6px; border-radius: 50%; background: #909399; }
+.sse-status.connected .sse-dot { background: #67c23a; }
 
 .page-content { flex: 1; overflow-y: auto; padding: 24px; width: 100%; }
 

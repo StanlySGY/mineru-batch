@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer } from '@element-plus/icons-vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, type TaskItem } from '../api'
+import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -282,6 +282,20 @@ function selectAllCurrent() {
   selectedIds.value = tasks.value.map(r => r.id)
 }
 
+function exportCSV() {
+  if (!tasks.value.length) return ElMessage.warning('当前无数据可导出')
+  const header = ['ID', '文件名', '大小(B)', '状态', '格式', '创建时间', '错误信息']
+  const rows = tasks.value.map(t => [t.id, t.original_filename, t.file_size, t.status, t.output_format, t.created_at, t.error_message || ''])
+  const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `tasks_${new Date().toISOString().slice(0, 10)}.csv`
+  a.click()
+  URL.revokeObjectURL(a.href)
+  ElMessage.success('已导出 CSV')
+}
+
 function showDetail(row: TaskItem) {
   detailTask.value = row
   detailVisible.value = true
@@ -301,7 +315,13 @@ onMounted(() => {
   timer = setInterval(() => loadTasks(), 30000)
   clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
   sseClose = api.onTaskEvent((evt) => {
-    if (evt.type === 'task_update') loadTasks()
+    if (evt.type === 'task_update') {
+      loadTasks()
+      if (evt.status === 'completed' || evt.status === 'failed') {
+        const task = tasks.value.find(t => t.id === evt.task_id)
+        if (task) notifyTaskComplete(task.original_filename, evt.status)
+      }
+    }
   })
 })
 onUnmounted(() => {
@@ -339,6 +359,7 @@ onUnmounted(() => {
         <el-divider v-if="selectedIds.length" direction="vertical" />
         <el-button size="small" plain :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-button>
         <el-button size="small" plain :icon="Switch" @click="handleConvertAllDocs">转换当前页文档</el-button>
+        <el-button size="small" plain :icon="DocumentCopy" @click="exportCSV">导出 CSV</el-button>
       </div>
     </div>
   </template>
