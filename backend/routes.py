@@ -350,12 +350,23 @@ async def get_stats(db: Session = Depends(get_db)):
         .all()
     )
     status_map = {s.value: c for s, c in by_status}
+    # 平均处理耗时（仅统计已完成的任务）
+    completed_tasks = (
+        db.query(FileTask.started_at, FileTask.completed_at)
+        .filter(FileTask.status == TaskStatus.COMPLETED, FileTask.started_at.isnot(None), FileTask.completed_at.isnot(None))
+        .all()
+    )
+    avg_duration_ms = 0
+    if completed_tasks:
+        durations = [(c.completed_at - c.started_at).total_seconds() * 1000 for c in completed_tasks]
+        avg_duration_ms = sum(durations) / len(durations)
     return {
         "total": total,
         "pending": status_map.get("pending", 0),
         "processing": status_map.get("processing", 0),
         "completed": status_map.get("completed", 0),
         "failed": status_map.get("failed", 0),
+        "avg_duration_ms": avg_duration_ms,
     }
 
 
@@ -782,3 +793,53 @@ async def clear_logs(db: Session = Depends(get_db)):
     count = db.query(ProcessLog).delete()
     db.commit()
     return {"detail": "cleared", "count": count}
+
+
+@router.get("/storage")
+async def get_storage_stats():
+    def _dir_size(path: str) -> int:
+        total_bytes = 0
+        if not os.path.exists(path):
+            return 0
+        for dirpath, _, filenames in os.walk(path):
+            for fn in filenames:
+                fp = os.path.join(dirpath, fn)
+                if os.path.isfile(fp):
+                    total_bytes += os.path.getsize(fp)
+        return total_bytes
+
+    uploads_size = _dir_size(UPLOAD_DIR)
+    outputs_size = _dir_size(OUTPUT_DIR)
+    converted_size = _dir_size(CONVERT_DIR)
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mineru_batch.db")
+    db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    return {
+        "uploads": uploads_size,
+        "outputs": outputs_size,
+        "converted": converted_size,
+        "database": db_size,
+        "total": uploads_size + outputs_size + converted_size + db_size,
+    }
+
+
+@router.post("/storage/clean")
+async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
+    targets = (body or {}).get("targets", [])
+    cleaned = {}
+    if "outputs" in targets:
+        n = 0
+        for f in os.listdir(OUTPUT_DIR):
+            fp = os.path.join(OUTPUT_DIR, f)
+            if os.path.isfile(fp):
+                os.remove(fp)
+                n += 1
+        cleaned["outputs"] = n
+    if "converted" in targets:
+        n = 0
+        for f in os.listdir(CONVERT_DIR):
+            fp = os.path.join(CONVERT_DIR, f)
+            if os.path.isfile(fp) and not f.startswith("."):
+                os.remove(fp)
+                n += 1
+        cleaned["converted"] = n
+    return {"detail": "cleaned", "counts": cleaned}

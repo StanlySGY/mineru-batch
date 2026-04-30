@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfig } from '../stores/config'
 import { api } from '../api'
 
 const cfg = useConfig()
 
 const testing = ref<number | null>(null)
+const testingAll = ref(false)
 const nodeLatency = ref<Record<number, string>>({})
 const concurrency = ref(5)
+const storage = ref<{ uploads: number; outputs: number; converted: number; database: number; total: number } | null>(null)
 
 async function loadConcurrency() {
   try {
@@ -43,6 +45,45 @@ async function handleTestEndpoint(idx: number) {
   } finally {
     testing.value = null
   }
+}
+
+async function handleTestAllEndpoints() {
+  testingAll.value = true
+  for (let idx = 0; idx < cfg.mineruEndpoints.value.length; idx++) {
+    const ep = cfg.mineruEndpoints.value[idx]
+    if (!ep.enabled) continue
+    const start = Date.now()
+    try {
+      await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
+      nodeLatency.value[idx] = `${Date.now() - start}ms`
+    } catch {
+      nodeLatency.value[idx] = '超时'
+    }
+  }
+  testingAll.value = false
+  ElMessage.success('全部节点测试完成')
+}
+
+async function loadStorage() {
+  try {
+    storage.value = await api.getStorage()
+  } catch {}
+}
+
+function formatStorage(bytes: number) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+}
+
+async function handleCleanStorage(target: string, label: string) {
+  try {
+    await ElMessageBox.confirm(`确定清空${label}目录中的文件？`, '确认', { type: 'warning' })
+    const res = await api.cleanStorage([target])
+    ElMessage.success(`已清理 ${res.counts[target] || 0} 个文件`)
+    loadStorage()
+  } catch {}
 }
 
 function addEndpoint() {
@@ -118,6 +159,7 @@ function handleImportConfig() {
 }
 
 loadConcurrency()
+loadStorage()
 
 const paramTable = [
   { param: 'files', desc: '上传的文件', type: 'file' },
@@ -150,6 +192,7 @@ const paramTable = [
         <span class="card-title">MinerU 服务节点</span>
         <div class="header-actions">
           <el-button size="small" :icon="Plus" @click="addEndpoint">添加节点</el-button>
+          <el-button size="small" :loading="testingAll" @click="handleTestAllEndpoints">测试全部</el-button>
           <el-button size="small" :icon="Download" @click="handleExportConfig">导出配置</el-button>
           <el-button size="small" :icon="Upload" @click="handleImportConfig">导入配置</el-button>
           <el-button size="small" @click="handleReset">恢复默认</el-button>
@@ -259,6 +302,41 @@ const paramTable = [
 
   <el-card shadow="never" class="info-card">
     <template #header>
+      <div class="settings-header">
+        <span class="card-title">存储管理</span>
+        <el-button size="small" text @click="loadStorage">刷新</el-button>
+      </div>
+    </template>
+    <div v-if="storage" class="storage-grid">
+      <div class="storage-item">
+        <span class="storage-label">上传文件</span>
+        <span class="storage-value">{{ formatStorage(storage.uploads) }}</span>
+        <el-button size="small" text type="danger" @click="handleCleanStorage('uploads', '上传文件')">清理</el-button>
+      </div>
+      <div class="storage-item">
+        <span class="storage-label">输出结果</span>
+        <span class="storage-value">{{ formatStorage(storage.outputs) }}</span>
+        <el-button size="small" text type="danger" @click="handleCleanStorage('outputs', '输出结果')">清理</el-button>
+      </div>
+      <div class="storage-item">
+        <span class="storage-label">转换文件</span>
+        <span class="storage-value">{{ formatStorage(storage.converted) }}</span>
+        <el-button size="small" text type="danger" @click="handleCleanStorage('converted', '转换文件')">清理</el-button>
+      </div>
+      <div class="storage-item">
+        <span class="storage-label">数据库</span>
+        <span class="storage-value">{{ formatStorage(storage.database) }}</span>
+      </div>
+      <div class="storage-total">
+        <span>磁盘总占用</span>
+        <strong>{{ formatStorage(storage.total) }}</strong>
+      </div>
+    </div>
+    <el-skeleton v-else :rows="3" animated />
+  </el-card>
+
+  <el-card shadow="never" class="info-card">
+    <template #header>
       <span class="card-title">调用说明</span>
     </template>
     <div class="info-content">
@@ -300,6 +378,12 @@ const paramTable = [
 .endpoint-form { display: flex; flex-direction: column; gap: 2px; }
 .endpoint-row { display: grid; grid-template-columns: 200px 1fr; gap: 12px; }
 .endpoint-row > * { margin-bottom: 0; }
+.storage-grid { display: flex; flex-direction: column; gap: 10px; }
+.storage-item { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+.storage-label { color: #606266; width: 80px; }
+.storage-value { color: #303133; font-weight: 500; font-variant-numeric: tabular-nums; }
+.storage-total { display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid #ebeef5; font-size: 14px; color: #606266; }
+.storage-total strong { color: #303133; font-size: 16px; }
 
 @media (max-width: 900px) {
   .settings-page { grid-template-columns: 1fr; }

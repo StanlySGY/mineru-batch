@@ -5,10 +5,11 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 
 const router = useRouter()
-const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0 })
+const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, avg_duration_ms: 0 })
 const recentTasks = ref<any[]>([])
 const loading = ref(false)
 const firstLoad = ref(true)
+const storageInfo = ref<{ total: number } | null>(null)
 let timer: ReturnType<typeof setInterval> | null = null
 let sseClose: (() => void) | null = null
 
@@ -32,15 +33,32 @@ const failureRate = computed(() => {
   return (stats.value.failed / done * 100).toFixed(1) + '%'
 })
 
+const avgDuration = computed(() => {
+  const ms = stats.value.avg_duration_ms
+  if (!ms) return '-'
+  if (ms < 60000) return (ms / 1000).toFixed(1) + 's'
+  return (ms / 60000).toFixed(1) + 'min'
+})
+
+const storageDisplay = computed(() => {
+  if (!storageInfo.value) return '-'
+  const bytes = storageInfo.value.total
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+  return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB'
+})
+
 async function loadStats() {
   loading.value = true
   try {
-    const [statsRes, recentRes] = await Promise.all([
+    const [statsRes, recentRes, storRes] = await Promise.all([
       api.getStats(),
       api.listTasks({ page: 1, size: 5 }),
+      api.getStorage().catch(() => null),
     ])
     stats.value = statsRes
     recentTasks.value = recentRes.items
+    if (storRes) storageInfo.value = storRes
   } catch {
   } finally {
     loading.value = false
@@ -125,6 +143,14 @@ onUnmounted(() => {
           <span class="rate-dot warning"></span>
           <span class="rate-text">处理中 <strong>{{ stats.processing }}</strong></span>
         </div>
+        <div class="rate-chip">
+          <span class="rate-dot primary"></span>
+          <span class="rate-text">平均耗时 <strong>{{ avgDuration }}</strong></span>
+        </div>
+        <div class="rate-chip">
+          <span class="rate-dot info"></span>
+          <span class="rate-text">磁盘占用 <strong>{{ storageDisplay }}</strong></span>
+        </div>
       </div>
 
       <el-card shadow="never" class="recent-card">
@@ -194,6 +220,8 @@ onUnmounted(() => {
 .rate-dot.success { background: #67c23a; }
 .rate-dot.danger { background: #f56c6c; }
 .rate-dot.warning { background: #e6a23c; }
+.rate-dot.primary { background: #409eff; }
+.rate-dot.info { background: #909399; }
 .rate-text { font-size: 13px; color: #606266; }
 .rate-text strong { font-size: 15px; }
 

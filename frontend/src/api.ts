@@ -92,7 +92,7 @@ export interface UploadOptions {
 export const api = {
   async getStats() {
     const { data } = await http.get('/stats')
-    return data as { total: number; pending: number; processing: number; completed: number; failed: number }
+    return data as { total: number; pending: number; processing: number; completed: number; failed: number; avg_duration_ms: number }
   },
 
   async getConcurrency() {
@@ -212,6 +212,16 @@ export const api = {
   async testConnection(params: { mineru_api: string; server_url: string }) {
     const { data } = await http.post('/test-connection', params)
     return data as { ok: boolean; detail?: string; error?: string }
+  },
+
+  async getStorage() {
+    const { data } = await http.get('/storage')
+    return data as { uploads: number; outputs: number; converted: number; database: number; total: number }
+  },
+
+  async cleanStorage(targets: string[]) {
+    const { data } = await http.post('/storage/clean', { targets })
+    return data as { detail: string; counts: Record<string, number> }
   },
 
   onTaskEvent(callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void): () => void {

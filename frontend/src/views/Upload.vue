@@ -17,6 +17,16 @@ const uploadProgress = ref(0)
 const showAdvanced = ref(false)
 
 const hasDocFiles = computed(() => fileList.value.some(f => isDocFile(f.name)))
+const totalSize = computed(() => {
+  const bytes = fileList.value.reduce((sum, f) => sum + (f.raw?.size || 0), 0)
+  if (!bytes) return ''
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+})
+
+function clearAllFiles() {
+  fileList.value = []
+}
 
 const handleExceed: UploadProps['onExceed'] = () => {
   ElMessage.warning('最多上传 50 个文件')
@@ -109,7 +119,13 @@ async function handleUpload() {
       </el-upload>
 
       <div v-if="fileList.length" class="file-list-section">
-        <div class="file-list-header">待上传文件</div>
+        <div class="file-list-header">
+          <span>待上传文件</span>
+          <span class="file-summary">
+            <span v-if="totalSize">共 {{ totalSize }}</span>
+            <el-button size="small" text type="danger" @click="clearAllFiles">清空全部</el-button>
+          </span>
+        </div>
         <div class="file-list-scroll">
           <div v-for="(f, idx) in fileList" :key="idx" class="file-row">
             <el-icon :size="16" class="file-icon"><Document /></el-icon>
@@ -231,7 +247,8 @@ async function handleUpload() {
 .card-title { font-weight: 600; }
 
 .file-list-section { margin-top: 16px; border-top: 1px solid #f0f0f0; padding-top: 12px; }
-.file-list-header { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 8px; }
+.file-list-header { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+.file-summary { display: flex; align-items: center; gap: 8px; font-weight: 400; color: #909399; font-size: 12px; }
 .file-list-scroll { max-height: 240px; overflow-y: auto; }
 .file-row {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;

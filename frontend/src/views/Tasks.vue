@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose } from '@element-plus/icons-vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem } from '../api'
 import { isDocFile } from '../utils/file'
@@ -21,10 +21,18 @@ const filterStatus = ref('')
 const filterSearch = ref('')
 const loading = ref(false)
 const firstLoad = ref(true)
+const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 let sseClose: (() => void) | null = null
+let clockTimer: ReturnType<typeof setInterval> | null = null
 
 const selectedIds = ref<number[]>([])
+
+const statusSummary = computed(() => {
+  const s = { pending: 0, processing: 0, completed: 0, failed: 0 }
+  for (const t of tasks.value) s[t.status] = (s[t.status] || 0) + 1
+  return s
+})
 
 const selectedHasRetryable = computed(() =>
   selectedIds.value.some(id => { const t = tasks.value.find(r => r.id === id); return t && (t.status === 'failed' || t.status === 'completed') })
@@ -254,23 +262,34 @@ function formatSize(bytes: number) {
 }
 
 function formatDuration(start: string | null, end: string | null) {
-  if (!start || !end) return '-'
-  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (!start) return '-'
+  const endTime = end ? new Date(end).getTime() : now.value
+  const ms = endTime - new Date(start).getTime()
   if (ms < 0) return '-'
   if (ms < 1000) return ms + 'ms'
   if (ms < 60000) return (ms / 1000).toFixed(1) + 's'
   return (ms / 60000).toFixed(1) + 'min'
 }
 
+function isLive(row: TaskItem) {
+  return row.status === 'processing' && !!row.started_at && !row.completed_at
+}
+
+function selectAllCurrent() {
+  selectedIds.value = tasks.value.map(r => r.id)
+}
+
 onMounted(() => {
   loadTasks()
   timer = setInterval(() => loadTasks(), 30000)
+  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
   sseClose = api.onTaskEvent((evt) => {
     if (evt.type === 'task_update') loadTasks()
   })
 })
 onUnmounted(() => {
   if (timer) clearInterval(timer)
+  if (clockTimer) clearInterval(clockTimer)
   if (sseClose) sseClose()
 })
 </script>
@@ -309,6 +328,16 @@ onUnmounted(() => {
 
   <el-skeleton v-if="firstLoad" :rows="8" animated />
   <template v-else>
+  <div class="summary-bar">
+    <span>共 <strong>{{ total }}</strong> 个任务</span>
+    <span class="summary-divider">|</span>
+    <el-tag type="info" size="small" effect="plain">等待 {{ statusSummary.pending }}</el-tag>
+    <el-tag type="warning" size="small" effect="plain">处理中 {{ statusSummary.processing }}</el-tag>
+    <el-tag type="success" size="small" effect="plain">已完成 {{ statusSummary.completed }}</el-tag>
+    <el-tag type="danger" size="small" effect="plain">失败 {{ statusSummary.failed }}</el-tag>
+    <span class="summary-spacer" />
+    <el-button size="small" text @click="selectAllCurrent">全选当前页</el-button>
+  </div>
   <el-table :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange">
     <el-table-column type="selection" width="40" />
     <el-table-column prop="id" label="ID" width="60" sortable />
@@ -338,7 +367,9 @@ onUnmounted(() => {
       <template #default="{ row }">.{{ row.output_format }}</template>
     </el-table-column>
     <el-table-column label="耗时" width="80">
-      <template #default="{ row }">{{ formatDuration(row.started_at, row.completed_at) }}</template>
+      <template #default="{ row }">
+        <span :class="{ 'live-timer': isLive(row) }">{{ formatDuration(row.started_at, row.completed_at) }}</span>
+      </template>
     </el-table-column>
     <el-table-column label="创建时间" width="160" prop="created_at" sortable :sort-method="(a: TaskItem, b: TaskItem) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()">
       <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
@@ -389,6 +420,13 @@ onUnmounted(() => {
 
 <style scoped>
 .table-card { border-radius: 10px; height: 100%; }
+.summary-bar {
+  display: flex; align-items: center; gap: 8px; padding: 8px 0 12px;
+  font-size: 13px; color: #606266; flex-wrap: wrap;
+}
+.summary-divider { color: #dcdfe6; }
+.summary-spacer { flex: 1; }
+.live-timer { color: #e6a23c; font-variant-numeric: tabular-nums; }
 .card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .card-header .filter-row { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .card-title { font-weight: 600; }

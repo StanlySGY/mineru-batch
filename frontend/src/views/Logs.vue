@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Delete, Refresh, ArrowDown, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type LogGroup } from '../api'
@@ -14,7 +14,14 @@ const loading = ref(false)
 const firstLoad = ref(true)
 const expandedTaskIds = ref<Set<number>>(new Set())
 const expandedLogId = ref<number | null>(null)
+const allExpanded = ref(false)
 let timer: ReturnType<typeof setInterval> | null = null
+
+const levelSummary = computed(() => {
+  const s = { info: 0, warn: 0, error: 0 }
+  for (const g of groups.value) for (const l of g.logs) s[l.level] = (s[l.level] || 0) + 1
+  return s
+})
 
 async function loadLogs() {
   loading.value = true
@@ -55,6 +62,16 @@ function isGroupExpanded(taskId: number) {
 
 function toggleLogDetail(id: number) {
   expandedLogId.value = expandedLogId.value === id ? null : id
+}
+
+function toggleAllGroups() {
+  if (allExpanded.value) {
+    expandedTaskIds.value = new Set()
+    allExpanded.value = false
+  } else {
+    expandedTaskIds.value = new Set(groups.value.map(g => g.task_id))
+    allExpanded.value = true
+  }
 }
 
 function handleFilterChange() {
@@ -125,6 +142,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
           <el-option label="WARN" value="warn" />
           <el-option label="ERROR" value="error" />
         </el-select>
+        <span class="level-badges">
+          <span v-if="levelSummary.info" class="level-badge info">{{ levelSummary.info }} INFO</span>
+          <span v-if="levelSummary.warn" class="level-badge warn">{{ levelSummary.warn }} WARN</span>
+          <span v-if="levelSummary.error" class="level-badge error">{{ levelSummary.error }} ERROR</span>
+        </span>
+        <el-button size="small" plain @click="toggleAllGroups">{{ allExpanded ? '收起全部' : '展开全部' }}</el-button>
         <el-button :icon="Refresh" @click="loadLogs" circle size="small" />
         <el-button :icon="Delete" @click="handleClear" type="danger" size="small" plain>清空</el-button>
       </div>
@@ -236,4 +259,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .empty-state { padding: 40px 0; }
+.level-badges { display: flex; gap: 4px; }
+.level-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 3px;
+  color: #fff; font-weight: 600;
+}
+.level-badge.info { background: #67c23a; }
+.level-badge.warn { background: #e6a23c; }
+.level-badge.error { background: #f56c6c; }
 </style>
