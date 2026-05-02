@@ -85,7 +85,7 @@ onUnmounted(() => {
 
     <div class="sidebar-footer">
       <transition name="fade">
-        <div v-show="!collapsed" class="sidebar-version">v1.0.0</div>
+        <div v-show="!collapsed" class="sidebar-version">v{{ __APP_VERSION__ }}</div>
       </transition>
       <div class="nav-item collapse-toggle" @click="collapsed = !collapsed">
         <el-icon :size="18">

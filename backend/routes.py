@@ -12,7 +12,6 @@ import asyncio
 import aiofiles
 import httpx
 import json as _json
-import typing
 from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
@@ -308,6 +307,14 @@ def _process_task_sync(task_id: int):
             f.write(output_content)
 
         add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
+        if _is_cancelled(task_id):
+            if os.path.exists(out_path):
+                os.remove(out_path)
+            task.status = TaskStatus.FAILED
+            task.error_message = "任务已取消"
+            task.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            return
         task.output_path = out_path
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(timezone.utc)
@@ -379,16 +386,11 @@ async def get_stats(db: Session = Depends(get_db)):
         .all()
     )
     status_map = {s.value: c for s, c in by_status}
-    # 平均处理耗时（仅统计已完成的任务）
-    completed_tasks = (
-        db.query(FileTask.started_at, FileTask.completed_at)
-        .filter(FileTask.status == TaskStatus.COMPLETED, FileTask.started_at.isnot(None), FileTask.completed_at.isnot(None))
-        .all()
-    )
-    avg_duration_ms = 0
-    if completed_tasks:
-        durations = [(c.completed_at - c.started_at).total_seconds() * 1000 for c in completed_tasks]
-        avg_duration_ms = sum(durations) / len(durations)
+    avg_row = db.execute(text(
+        "SELECT AVG(STRFTIME('%s', completed_at) - STRFTIME('%s', started_at)) * 1000 "
+        "FROM file_tasks WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL"
+    )).scalar()
+    avg_duration_ms = float(avg_row) if avg_row else 0
     return {
         "total": total,
         "pending": status_map.get("pending", 0),
@@ -709,10 +711,14 @@ async def update_task(
         task.parse_method = parse_method
     if lang_list:
         task.lang_list = lang_list
-    if output_format and output_format in ("md", "txt"):
+    if output_format and output_format in ("md", "txt", "html"):
         task.output_format = OutputFormat(output_format)
     if timeout:
-        task.timeout = int(timeout)
+        try:
+            t = int(timeout)
+            task.timeout = max(60, min(t, 3600))
+        except (ValueError, TypeError):
+            raise HTTPException(400, "timeout must be 60-3600")
     db.commit()
     db.refresh(task)
     return task.to_dict()

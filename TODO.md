@@ -38,18 +38,18 @@
 
 | # | 任务 | 状态 |
 |---|------|------|
-| F1 | Chunk 分割优化（vendor chunk 972KB → 拆分） | ⬜ |
-| F2 | DRY 提取公共工具函数（formatTime/formatSize/statusTag） | ⬜ |
-| F3 | SSE 事件防抖 + 连接状态修复 + 去除冗余轮询 | ⬜ |
-| F4 | 内存泄漏修复 + 路由增强（404/title/transitions） | ⬜ |
-| F5 | 后端安全修复（路径校验/HTML转义/clean_storage同步DB） | ⬜ |
-| F6 | 后端可靠性修复（取消竞态/内存泄漏/stats SQL优化/请求校验） | ⬜ |
-| F7 | 后端代码清理（重复导入/未用导入/Pydantic模型） | ⬜ |
+| F1 | Chunk 分割优化（vendor chunk 972KB → 拆分） | ✅ |
+| F2 | DRY 提取公共工具函数（formatTime/formatSize/statusTag） | ✅ |
+| F3 | SSE 事件防抖 + 连接状态修复 + 去除冗余轮询 | ✅ |
+| F4 | 内存泄漏修复 + 路由增强（404/title/transitions） | ✅ |
+| F5 | 后端安全修复（路径校验/HTML转义/clean_storage同步DB） | ✅ |
+| F6 | 后端可靠性修复（取消竞态/stats SQL优化/请求校验） | ✅ |
+| F7 | 后端代码清理（重复导入/未用导入） | ✅ |
 
 ## 第三轮优化 — 工程质量（中等工作量）
 
 | # | 任务 | 状态 |
 |---|------|------|
-| G1 | Config store DRY 重构（useLocalStorageRef） | ⬜ |
-| G2 | 预览优化（renderMd 缓存 + highlight.js 按需加载） | ⬜ |
-| G3 | 前端收尾（favicon/版本号从package.json/代码清理） | ⬜ |
+| G1 | Config store DRY 重构（lsRef 泛型工厂，243行→137行） | ✅ |
+| G2 | 预览优化（renderMd computed缓存 + highlight.js 延迟注册） | ✅ |
+| G3 | 前端收尾（favicon/版本号从package.json注入/语法修复） | ✅ |

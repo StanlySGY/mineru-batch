@@ -19,22 +19,29 @@ import yaml from 'highlight.js/lib/languages/yaml'
 import sql from 'highlight.js/lib/languages/sql'
 import plaintext from 'highlight.js/lib/languages/plaintext'
 
-hljs.registerLanguage('javascript', javascript)
-hljs.registerLanguage('js', javascript)
-hljs.registerLanguage('python', python)
-hljs.registerLanguage('json', json)
-hljs.registerLanguage('bash', bash)
-hljs.registerLanguage('xml', xml)
-hljs.registerLanguage('html', xml)
-hljs.registerLanguage('css', css)
-hljs.registerLanguage('yaml', yaml)
-hljs.registerLanguage('sql', sql)
-hljs.registerLanguage('plaintext', plaintext)
+let hljsReady = false
+function ensureHljs() {
+  if (hljsReady) return
+  hljs.registerLanguage('javascript', javascript)
+  hljs.registerLanguage('js', javascript)
+  hljs.registerLanguage('python', python)
+  hljs.registerLanguage('json', json)
+  hljs.registerLanguage('bash', bash)
+  hljs.registerLanguage('xml', xml)
+  hljs.registerLanguage('html', xml)
+  hljs.registerLanguage('css', css)
+  hljs.registerLanguage('yaml', yaml)
+  hljs.registerLanguage('sql', sql)
+  hljs.registerLanguage('plaintext', plaintext)
+  hljsReady = true
+}
 
 marked.setOptions({ breaks: true, gfm: true })
 
-function renderMd(text: string): string {
-  const html = marked.parse(text) as string
+const renderedPreview = computed(() => {
+  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') return ''
+  ensureHljs()
+  const html = marked.parse(previewContent.value) as string
   const clean = DOMPurify.sanitize(html, { ADD_TAGS: ['code', 'pre'], ADD_ATTR: ['class'] })
   const el = document.createElement('div')
   el.innerHTML = clean
@@ -42,7 +49,7 @@ function renderMd(text: string): string {
     hljs.highlightElement(block as HTMLElement)
   })
   return el.innerHTML
-}
+})
 
 const tasks = ref<TaskItem[]>([])
 const total = ref(0)
@@ -339,7 +346,6 @@ onMounted(() => {
       }
     }
   })
-  })
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => {
@@ -508,7 +514,7 @@ function checkMobile() {
         <el-radio-button value="source">源码</el-radio-button>
       </el-radio-group>
     </div>
-    <div v-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderMd(previewContent)" />
+    <div v-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
     <pre v-else-if="previewContent" class="text-preview">{{ previewContent }}</pre>
   </div>
   <template #footer>
