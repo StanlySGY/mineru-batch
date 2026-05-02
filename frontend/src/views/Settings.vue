@@ -33,9 +33,12 @@ function handleLoadPreset(name: string) {
   ElMessage.success(`已加载预设 "${name}"`)
 }
 
-function handleDeletePreset(name: string) {
-  cfg.deletePreset(name)
-  ElMessage.success(`已删除预设 "${name}"`)
+async function handleDeletePreset(name: string) {
+  try {
+    await ElMessageBox.confirm(`确定删除预设 "${name}"？`, '确认', { type: 'warning' })
+    cfg.deletePreset(name)
+    ElMessage.success(`已删除预设 "${name}"`)
+  } catch {}
 }
 
 async function loadConcurrency() {
