@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError } from '../utils/error'
+import { formatTime, formatSize, statusTag } from '../utils/format'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/core'
@@ -85,13 +86,6 @@ const previewMode = ref<'render' | 'source'>('render')
 
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
-
-const statusTag: Record<string, { type: 'info' | 'warning' | 'success' | 'danger'; label: string }> = {
-  pending: { type: 'info', label: '等待中' },
-  processing: { type: 'warning', label: '处理中' },
-  completed: { type: 'success', label: '已完成' },
-  failed: { type: 'danger', label: '失败' },
-}
 
 async function loadTasks() {
   loading.value = true
@@ -283,18 +277,6 @@ function handlePageChange(val: number) {
 
 function handleSelectionChange(rows: TaskItem[]) {
   selectedIds.value = rows.map(r => r.id)
-}
-
-function formatTime(iso: string) {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN')
-}
-
-function formatSize(bytes: number) {
-  if (!bytes) return '-'
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
 function formatDuration(start: string | null, end: string | null) {

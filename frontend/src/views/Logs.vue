@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Delete, Refresh, ArrowDown, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type LogGroup } from '../api'
+import { formatTime, statusTag } from '../utils/format'
 
 const groups = ref<LogGroup[]>([])
 const total = ref(0)
@@ -89,11 +90,6 @@ function handlePageChange(val: number) {
   loadLogs()
 }
 
-function formatTime(iso: string | null) {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN')
-}
-
 function formatRelative(iso: string | null) {
   if (!iso) return ''
   const diff = Date.now() - new Date(iso).getTime()
@@ -109,7 +105,8 @@ function matchSearch(msg: string): boolean {
 }
 
 const statusTagType: Record<string, string> = {
-  pending: 'info', processing: 'warning', completed: 'success', failed: 'danger',
+  pending: statusTag.pending.type, processing: statusTag.processing.type,
+  completed: statusTag.completed.type, failed: statusTag.failed.type,
 }
 const statusLabel: Record<string, string> = {
   pending: '等待', processing: '处理中', completed: '完成', failed: '失败',

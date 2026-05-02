@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfig } from '../stores/config'
+import { formatSize as formatStorage } from '../utils/format'
 import { api } from '../api'
 
 const cfg = useConfig()
@@ -92,13 +93,6 @@ async function loadStorage() {
   try {
     storage.value = await api.getStorage()
   } catch {}
-}
-
-function formatStorage(bytes: number) {
-  if (!bytes) return '0 B'
-  if (bytes < 1024) return bytes + ' B'
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
-  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
 }
 
 async function handleCleanStorage(target: string, label: string) {

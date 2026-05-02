@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
+import { formatTime, statusTag } from '../utils/format'
 import * as echarts from 'echarts/core'
 import { BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -95,11 +96,6 @@ async function loadTrend() {
   } catch {}
 }
 
-function formatTime(iso: string) {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN')
-}
-
 function handleCardClick(route: string) {
   if (route.includes('?')) {
     const [path, query] = route.split('?')
@@ -111,7 +107,8 @@ function handleCardClick(route: string) {
 }
 
 const statusLabel: Record<string, string> = {
-  pending: '等待中', processing: '处理中', completed: '已完成', failed: '失败',
+  pending: statusTag.pending.label, processing: statusTag.processing.label,
+  completed: statusTag.completed.label, failed: statusTag.failed.label,
 }
 
 onMounted(() => {
