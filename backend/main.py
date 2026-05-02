@@ -7,7 +7,7 @@ from pathlib import Path
 import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from models import init_db, SessionLocal, FileTask, TaskStatus
@@ -88,8 +88,8 @@ app.include_router(router, prefix="/api")
 
 # Serve frontend static files (production mode only)
 if not DEV_MODE and FRONTEND_DIST.exists():
-    # Mount assets with cache headers
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
+    # Assets with hash filenames — cache 1 year
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets", max_age=31536000), name="assets")
 
     # Other static files in dist root (favicon, icons, etc.)
     for f in FRONTEND_DIST.iterdir():
@@ -98,14 +98,13 @@ if not DEV_MODE and FRONTEND_DIST.exists():
 
             def _make_static(filepath: Path):
                 async def _serve(request: Request):
-                    return FileResponse(filepath)
+                    return FileResponse(filepath, headers={"Cache-Control": "public, max-age=86400"})
                 return _serve
             app.get(path)(_make_static(f))
 
-    # SPA fallback — all non-API routes return index.html
+    # SPA fallback — no cache (always serve latest index.html)
     @app.get("/{full_path:path}")
     async def spa_fallback(request: Request, full_path: str):
-        # Skip API routes (already handled by router)
         if full_path.startswith("api/"):
             return
-        return FileResponse(FRONTEND_DIST / "index.html")
+        return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})
