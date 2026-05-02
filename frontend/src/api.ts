@@ -132,7 +132,7 @@ export const api = {
     return data as { concurrency: number }
   },
 
-  async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void) {
+  async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void, signal?: AbortSignal) {
     const form = new FormData()
     files.forEach((f) => form.append('files', f))
     form.append('backend', opts.backend)
@@ -159,6 +159,7 @@ export const api = {
     let lastLoaded = 0
     let lastTime = startTime
     const { data } = await http.post('/upload', form, {
+      signal,
       onUploadProgress: (e) => {
         if (!onProgress || !e.total) return
         const now = Date.now()

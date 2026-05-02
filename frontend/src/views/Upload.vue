@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
@@ -19,6 +19,7 @@ const uploadProgress = ref(0)
 const uploadSpeed = ref('')
 const uploadEta = ref('')
 const showAdvanced = ref(false)
+const abortController = ref<AbortController | null>(null)
 
 const presetProxy = ref('')
 
@@ -61,6 +62,7 @@ async function handleUpload() {
   uploadProgress.value = 0
   uploadSpeed.value = ''
   uploadEta.value = ''
+  abortController.value = new AbortController()
   try {
     const enabledEndpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
     const endpointsStr = enabledEndpoints.length > 0 ? JSON.stringify(enabledEndpoints) : undefined
@@ -89,12 +91,15 @@ async function handleUpload() {
       uploadProgress.value = p.pct
       uploadSpeed.value = p.speed > 1024 * 1024 ? `${(p.speed / 1024 / 1024).toFixed(1)} MB/s` : `${(p.speed / 1024).toFixed(0)} KB/s`
       uploadEta.value = p.eta > 60 ? `约 ${Math.ceil(p.eta / 60)} 分钟` : p.eta > 0 ? `约 ${Math.ceil(p.eta)} 秒` : ''
-    })
+    }, abortController.value.signal)
     ElMessage.success(`已提交 ${res.tasks.length} 个解析任务`)
     requestNotificationPermission()
     fileList.value = []
     router.push('/tasks')
   } catch (e: any) {
+    if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {
+      ElMessage.info('上传已取消')
+    } else {
     const detail = e?.response?.data
     if (detail?.detail) {
       const msgs = Array.isArray(detail.detail)
@@ -104,10 +109,18 @@ async function handleUpload() {
     } else {
       ElMessage.error(e?.response?.data?.detail || e?.message || '上传失败')
     }
+    }
   } finally {
     uploading.value = false
+    abortController.value = null
   }
 }
+
+onUnmounted(() => {
+  if (uploading.value && abortController.value) {
+    abortController.value.abort()
+  }
+})
 </script>
 
 <template>
