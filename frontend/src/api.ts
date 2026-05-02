@@ -45,7 +45,7 @@ export interface TaskItem {
   start_page_id: number
   end_page_id: number
   status: 'pending' | 'processing' | 'completed' | 'failed'
-  output_format: 'md' | 'txt'
+  output_format: 'md' | 'txt' | 'html'
   error_message: string | null
   started_at: string | null
   completed_at: string | null
