@@ -38,9 +38,9 @@ class FileTask(Base):
     timeout = Column(Integer, default=600)
     auto_convert_doc = Column(Boolean, default=True)
     # MinerU connection
-    mineru_api = Column(String(512), default="http://172.16.100.26:8086/file_parse")
+    mineru_api = Column(String(512), default="http://localhost:8086/file_parse")
     backend = Column(String(128), default="hybrid-http-client")
-    server_url = Column(String(512), default="http://10.8.132.224:6002/v1")
+    server_url = Column(String(512), default="http://localhost:6002/v1")
     # MinerU parse options
     parse_method = Column(String(64), default="auto")
     lang_list = Column(String(128), default="ch")
