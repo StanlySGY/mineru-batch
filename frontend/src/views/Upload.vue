@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { UploadFilled, Document, Delete, Switch } from '@element-plus/icons-vue'
+import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
+import type { UploadProgress } from '../api'
+import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
-import { isDocFile, ALLOWED_EXTENSIONS } from '../utils/file'
+import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
 import { useRouter } from 'vue-router'
 import type { UploadUserFile, UploadProps } from 'element-plus'
 
@@ -14,12 +16,42 @@ const cfg = useConfig()
 const fileList = ref<UploadUserFile[]>([])
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const uploadSpeed = ref('')
+const uploadEta = ref('')
 const showAdvanced = ref(false)
 
+const presetProxy = ref('')
+
+function onPresetChange(name: string) {
+  if (name) {
+    cfg.loadPreset(name)
+    ElMessage.success(`已加载预设 "${name}"`)
+  }
+  presetProxy.value = ''
+}
+
 const hasDocFiles = computed(() => fileList.value.some(f => isDocFile(f.name)))
+const totalSize = computed(() => {
+  const bytes = fileList.value.reduce((sum, f) => sum + (f.raw?.size || 0), 0)
+  if (!bytes) return ''
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB'
+})
+
+function clearAllFiles() {
+  fileList.value = []
+}
 
 const handleExceed: UploadProps['onExceed'] = () => {
   ElMessage.warning('最多上传 50 个文件')
+}
+
+const beforeUpload: UploadProps['beforeUpload'] = (rawFile) => {
+  if (rawFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
+    ElMessage.error(`文件 "${rawFile.name}" 超过 ${MAX_FILE_SIZE_MB}MB 大小限制`)
+    return false
+  }
+  return true
 }
 
 async function handleUpload() {
@@ -27,9 +59,11 @@ async function handleUpload() {
   if (!rawFiles.length) return ElMessage.warning('请选择文件')
   uploading.value = true
   uploadProgress.value = 0
+  uploadSpeed.value = ''
+  uploadEta.value = ''
   try {
     const enabledEndpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
-    const endpointsStr = enabledEndpoints.length > 1 ? JSON.stringify(enabledEndpoints) : undefined
+    const endpointsStr = enabledEndpoints.length > 0 ? JSON.stringify(enabledEndpoints) : undefined
     const res = await api.upload(rawFiles, {
       backend: cfg.backend.value,
       mineruApi: cfg.mineruApi.value,
@@ -51,8 +85,13 @@ async function handleUpload() {
       outputFormat: cfg.outputFormat.value,
       timeout: cfg.timeout.value,
       autoConvert: cfg.autoConvert.value,
-    }, (pct) => { uploadProgress.value = pct })
+    }, (p: UploadProgress) => {
+      uploadProgress.value = p.pct
+      uploadSpeed.value = p.speed > 1024 * 1024 ? `${(p.speed / 1024 / 1024).toFixed(1)} MB/s` : `${(p.speed / 1024).toFixed(0)} KB/s`
+      uploadEta.value = p.eta > 60 ? `约 ${Math.ceil(p.eta / 60)} 分钟` : p.eta > 0 ? `约 ${Math.ceil(p.eta)} 秒` : ''
+    })
     ElMessage.success(`已提交 ${res.tasks.length} 个解析任务`)
+    requestNotificationPermission()
     fileList.value = []
     router.push('/tasks')
   } catch (e: any) {
@@ -89,6 +128,7 @@ async function handleUpload() {
         :limit="50"
         :accept="ALLOWED_EXTENSIONS"
         :on-exceed="handleExceed"
+        :before-upload="beforeUpload"
         drag
         class="upload-dragger"
       >
@@ -99,8 +139,29 @@ async function handleUpload() {
         </template>
       </el-upload>
 
+      <div class="folder-upload-hint">
+        <el-upload
+          v-model:file-list="fileList"
+          :auto-upload="false"
+          :limit="200"
+          :on-exceed="handleExceed"
+          :before-upload="beforeUpload"
+          webkitdirectory
+          class="folder-btn"
+          :show-file-list="false"
+        >
+          <el-button size="small" plain>选择文件夹上传</el-button>
+        </el-upload>
+      </div>
+
       <div v-if="fileList.length" class="file-list-section">
-        <div class="file-list-header">待上传文件</div>
+        <div class="file-list-header">
+          <span>待上传文件</span>
+          <span class="file-summary">
+            <span v-if="totalSize">共 {{ totalSize }}</span>
+            <el-button size="small" text type="danger" @click="clearAllFiles">清空全部</el-button>
+          </span>
+        </div>
         <div class="file-list-scroll">
           <div v-for="(f, idx) in fileList" :key="idx" class="file-row">
             <el-icon :size="16" class="file-icon"><Document /></el-icon>
@@ -124,7 +185,12 @@ async function handleUpload() {
   <div class="upload-right">
     <el-card shadow="never" class="config-card">
       <template #header>
-        <span class="card-title">解析配置</span>
+        <div class="card-header-row">
+          <span class="card-title">解析配置</span>
+          <el-select v-if="cfg.presets.value.length" v-model="presetProxy" placeholder="加载预设" size="small" clearable style="width:140px" @change="onPresetChange">
+            <el-option v-for="p in cfg.presets.value" :key="p.name" :label="p.name" :value="p.name" />
+          </el-select>
+        </div>
       </template>
 
       <el-form label-position="top" class="config-form">
@@ -159,6 +225,7 @@ async function handleUpload() {
           <el-radio-group v-model="cfg.outputFormat.value">
             <el-radio-button value="md">Markdown</el-radio-button>
             <el-radio-button value="txt">纯文本</el-radio-button>
+            <el-radio-button value="html">HTML</el-radio-button>
           </el-radio-group>
         </el-form-item>
 
@@ -192,7 +259,7 @@ async function handleUpload() {
 
         <el-form-item v-if="uploading">
           <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
-          <div class="form-tip">{{ uploadProgress < 100 ? '上传中...' : '上传完成，服务端处理中...' }}</div>
+          <div class="form-tip">{{ uploadProgress < 100 ? `上传中... ${uploadSpeed} ${uploadEta}` : '上传完成，服务端处理中...' }}</div>
         </el-form-item>
 
         <el-form-item>
@@ -222,7 +289,8 @@ async function handleUpload() {
 .card-title { font-weight: 600; }
 
 .file-list-section { margin-top: 16px; border-top: 1px solid #f0f0f0; padding-top: 12px; }
-.file-list-header { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 8px; }
+.file-list-header { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+.file-summary { display: flex; align-items: center; gap: 8px; font-weight: 400; color: #909399; font-size: 12px; }
 .file-list-scroll { max-height: 240px; overflow-y: auto; }
 .file-row {
   display: flex; align-items: center; gap: 8px; padding: 6px 8px;
@@ -234,6 +302,7 @@ async function handleUpload() {
 .doc-tag { flex-shrink: 0; }
 .file-remove { flex-shrink: 0; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
+.folder-upload-hint { display: flex; justify-content: center; margin-top: 8px; }
 
 @media (max-width: 800px) {
   .upload-page { grid-template-columns: 1fr; }

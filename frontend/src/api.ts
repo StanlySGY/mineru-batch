@@ -6,12 +6,16 @@ const http = axios.create({ baseURL: '/api' })
 http.interceptors.response.use(
   (res) => res,
   (err) => {
-    const status = err.response?.status
-    if (status === 500) ElMessage.error('服务器内部错误')
-    else if (status === 413) ElMessage.error('请求体过大')
-    else if (status && status >= 400) {
-      const msg = err.response?.data?.detail
-      if (msg && typeof msg === 'string') ElMessage.error(msg)
+    if (!err.response) {
+      ElMessage.error('网络连接失败，请检查服务是否运行')
+    } else {
+      const status = err.response.status
+      if (status === 500) ElMessage.error('服务器内部错误')
+      else if (status === 413) ElMessage.error('请求体过大')
+      else if (status && status >= 400) {
+        const msg = err.response?.data?.detail
+        if (msg && typeof msg === 'string') ElMessage.error(msg)
+      }
     }
     return Promise.reject(err)
   },
@@ -41,7 +45,7 @@ export interface TaskItem {
   start_page_id: number
   end_page_id: number
   status: 'pending' | 'processing' | 'completed' | 'failed'
-  output_format: 'md' | 'txt'
+  output_format: 'md' | 'txt' | 'html'
   error_message: string | null
   started_at: string | null
   completed_at: string | null
@@ -62,7 +66,16 @@ export interface LogGroup {
   task_id: number
   filename: string
   status: string
+  created_at: string | null
   logs: LogItem[]
+}
+
+export interface UploadProgress {
+  pct: number
+  loaded: number
+  total: number
+  speed: number
+  eta: number
 }
 
 export interface UploadOptions {
@@ -88,13 +101,38 @@ export interface UploadOptions {
   autoConvert: boolean
 }
 
+export function requestNotificationPermission(): boolean {
+  if (!('Notification' in window)) return false
+  if (Notification.permission === 'granted') return true
+  if (Notification.permission === 'denied') return false
+  Notification.requestPermission()
+  return Notification.permission === 'granted'
+}
+
+export function notifyTaskComplete(filename: string, status: string) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return
+  const title = status === 'completed' ? '任务完成' : '任务失败'
+  const body = status === 'completed' ? `${filename} 解析完成` : `${filename} 解析失败`
+  new Notification(title, { body })
+}
+
 export const api = {
   async getStats() {
     const { data } = await http.get('/stats')
-    return data as { total: number; pending: number; processing: number; completed: number; failed: number }
+    return data as { total: number; pending: number; processing: number; completed: number; failed: number; avg_duration_ms: number }
   },
 
-  async upload(files: File[], opts: UploadOptions, onProgress?: (pct: number) => void) {
+  async getConcurrency() {
+    const { data } = await http.get('/concurrency')
+    return data as { concurrency: number }
+  },
+
+  async setConcurrency(n: number) {
+    const { data } = await http.put('/concurrency', { concurrency: n })
+    return data as { concurrency: number }
+  },
+
+  async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void) {
     const form = new FormData()
     files.forEach((f) => form.append('files', f))
     form.append('backend', opts.backend)
@@ -117,9 +155,25 @@ export const api = {
     form.append('output_format', opts.outputFormat)
     form.append('timeout', String(opts.timeout))
     form.append('auto_convert', String(opts.autoConvert))
+    const startTime = Date.now()
+    let lastLoaded = 0
+    let lastTime = startTime
     const { data } = await http.post('/upload', form, {
       onUploadProgress: (e) => {
-        if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100))
+        if (!onProgress || !e.total) return
+        const now = Date.now()
+        const elapsed = now - lastTime
+        const speed = elapsed > 0 ? (e.loaded - lastLoaded) / (elapsed / 1000) : 0
+        lastLoaded = e.loaded
+        lastTime = now
+        const remaining = speed > 0 ? (e.total - e.loaded) / speed : 0
+        onProgress({
+          pct: Math.round((e.loaded / e.total) * 100),
+          loaded: e.loaded,
+          total: e.total,
+          speed,
+          eta: remaining,
+        })
       },
     })
     return data
@@ -160,6 +214,11 @@ export const api = {
     return data
   },
 
+  async cancelTask(id: number) {
+    const { data } = await http.post(`/tasks/${id}/cancel`)
+    return data
+  },
+
   async convertDocToPdf(id: number) {
     const { data } = await http.post(`/tasks/${id}/convert`)
     return data
@@ -196,5 +255,51 @@ export const api = {
   async testConnection(params: { mineru_api: string; server_url: string }) {
     const { data } = await http.post('/test-connection', params)
     return data as { ok: boolean; detail?: string; error?: string }
+  },
+
+  async getStorage() {
+    const { data } = await http.get('/storage')
+    return data as { uploads: number; outputs: number; converted: number; database: number; total: number }
+  },
+
+  async cleanStorage(targets: string[]) {
+    const { data } = await http.post('/storage/clean', { targets })
+    return data as { detail: string; counts: Record<string, number> }
+  },
+
+  async getStatsTrend(days = 7) {
+    const { data } = await http.get('/stats/trend', { params: { days } })
+    return data as { date: string; completed: number; failed: number }[]
+  },
+
+  onTaskEvent(
+    callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void,
+    onStatusChange?: (connected: boolean) => void,
+  ): () => void {
+    let reconnectAttempts = 0
+    let es: EventSource | null = null
+    let stopped = false
+
+    function connect() {
+      if (stopped) return
+      es = new EventSource('/api/tasks/events')
+      es.onopen = () => {
+        reconnectAttempts = 0
+        onStatusChange?.(true)
+      }
+      es.onmessage = (e) => {
+        try { callback(JSON.parse(e.data)) } catch {}
+      }
+      es.onerror = () => {
+        onStatusChange?.(false)
+        es?.close()
+        if (stopped) return
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
+        reconnectAttempts++
+        setTimeout(connect, delay)
+      }
+    }
+    connect()
+    return () => { stopped = true; es?.close() }
   },
 }

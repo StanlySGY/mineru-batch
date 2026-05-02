@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, ForeignKey
 from sqlalchemy import create_engine, event
@@ -17,6 +18,7 @@ class TaskStatus(str, enum.Enum):
 class OutputFormat(str, enum.Enum):
     MD = "md"
     TXT = "txt"
+    HTML = "html"
 
 
 class LogLevel(str, enum.Enum):
@@ -37,9 +39,9 @@ class FileTask(Base):
     timeout = Column(Integer, default=600)
     auto_convert_doc = Column(Boolean, default=True)
     # MinerU connection
-    mineru_api = Column(String(512), default="http://172.16.100.26:8086/file_parse")
+    mineru_api = Column(String(512), default="http://localhost:8086/file_parse")
     backend = Column(String(128), default="hybrid-http-client")
-    server_url = Column(String(512), default="http://10.8.132.224:6002/v1")
+    server_url = Column(String(512), default="http://localhost:6002/v1")
     # MinerU parse options
     parse_method = Column(String(64), default="auto")
     lang_list = Column(String(128), default="ch")
@@ -54,6 +56,7 @@ class FileTask(Base):
     replace_image_url = Column(Boolean, default=True)
     start_page_id = Column(Integer, default=0)
     end_page_id = Column(Integer, default=99999)
+    api_key = Column(String(256), nullable=True)
     # output
     output_format = Column(Enum(OutputFormat), default=OutputFormat.MD)
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, index=True)
@@ -121,7 +124,7 @@ class ProcessLog(Base):
         }
 
 
-DATABASE_URL = "sqlite:///./mineru_batch.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./mineru_batch.db")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 

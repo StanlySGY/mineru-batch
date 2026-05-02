@@ -1,0 +1,14 @@
+node_modules/
+.git/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.db
+*.db-shm
+*.db-wal
+uploads/
+outputs/
+converted/
+dist/
+.claude/

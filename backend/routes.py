@@ -11,11 +11,14 @@ import traceback
 import asyncio
 import aiofiles
 import httpx
+import json as _json
+import html
+import markdown
 from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, text
 from models import (
     FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel,
     get_db, SessionLocal, add_log,
@@ -23,9 +26,9 @@ from models import (
 
 router = APIRouter()
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
-CONVERT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "converted")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs"))
+CONVERT_DIR = os.environ.get("CONVERT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "converted"))
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -36,6 +39,40 @@ _lo_lock = threading.Lock()
 _rr_counter = 0
 _rr_lock = threading.Lock()
 _task_semaphore = asyncio.Semaphore(5)
+_cancelled_tasks: set[int] = set()
+_cancel_lock = threading.Lock()
+_max_concurrency = 5
+_SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.path.normpath(CONVERT_DIR))
+
+
+def _safe_path(path: str) -> str:
+    normalized = os.path.normpath(path)
+    if not any(normalized.startswith(d) for d in _SAFE_DIRS):
+        raise HTTPException(403, "Access denied")
+    return normalized
+
+
+def set_concurrency(n: int):
+    global _task_semaphore, _max_concurrency
+    _max_concurrency = max(1, min(n, 20))
+    _task_semaphore = asyncio.Semaphore(_max_concurrency)
+
+# SSE 事件总线
+_sse_subscribers: list[asyncio.Queue] = []
+_sse_lock = asyncio.Lock()
+
+
+def _emit_event(event_type: str, task_id: int, data: dict = None):
+    payload = _json.dumps({"type": event_type, "task_id": task_id, **(data or {})}, ensure_ascii=False)
+    for q in _sse_subscribers:
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            pass
+
+
+def _notify_task_change(task_id: int, status: str, **extra):
+    _emit_event("task_update", task_id, {"status": status, **extra})
 
 
 def _pick_endpoint(endpoints: list[dict]) -> dict:
@@ -145,10 +182,15 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
             add_log(f"文件读取完成，大小 {len(file_data)} 字节", task_id=task_id)
             form_data = _build_mineru_form(task)
             add_log(f"发送参数", task_id=task_id, detail=json.dumps(form_data, ensure_ascii=False))
+            headers = {}
+            api_key = task.api_key if hasattr(task, 'api_key') else None
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             resp = client.post(
                 api_url,
                 files={"files": (os.path.basename(file_to_parse), file_data, "application/octet-stream")},
                 data=form_data,
+                headers=headers,
             )
             add_log(f"MinerU 响应: HTTP {resp.status_code}", task_id=task_id,
                     level="info" if resp.status_code == 200 else "error",
@@ -182,11 +224,16 @@ def _extract_md_from_result(result: dict, original_filename: str) -> str:
     return ""
 
 
+def _is_cancelled(task_id: int) -> bool:
+    with _cancel_lock:
+        return task_id in _cancelled_tasks
+
+
 def _process_task_sync(task_id: int):
     db = SessionLocal()
     try:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
-        if not task:
+        if not task or _is_cancelled(task_id):
             return
 
         file_to_parse = task.file_path
@@ -205,10 +252,23 @@ def _process_task_sync(task_id: int):
                 except Exception as e:
                     raise RuntimeError(f"文档转 PDF 失败: {e}")
 
+        if _is_cancelled(task_id):
+            task.status = TaskStatus.FAILED
+            task.error_message = "任务已取消"
+            db.commit()
+            return
+
         task.status = TaskStatus.PROCESSING
         task.started_at = datetime.now(timezone.utc)
         db.commit()
         add_log(f"任务开始处理", task_id=task_id)
+        _notify_task_change(task_id, "processing")
+
+        if _is_cancelled(task_id):
+            task.status = TaskStatus.FAILED
+            task.error_message = "任务已取消"
+            db.commit()
+            return
 
         result = _call_mineru_sync(task, task_id, file_to_parse)
 
@@ -229,14 +289,48 @@ def _process_task_sync(task_id: int):
             out_path = os.path.join(OUTPUT_DIR, out_name)
             counter += 1
 
+        output_content = md_content
+        if ext == "html":
+            md_html = markdown.markdown(
+                md_content,
+                extensions=['tables', 'fenced_code', 'codehilite', 'toc'],
+            )
+            escaped_title = html.escape(original_stem)
+            output_content = (
+                '<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">'
+                f'<title>{escaped_title}</title>'
+                '<style>'
+                'body{max-width:900px;margin:40px auto;font-family:system-ui,sans-serif;line-height:1.8;color:#333;padding:0 20px}'
+                'h1,h2,h3{margin-top:24px}h1{font-size:1.6em;border-bottom:1px solid #ddd;padding-bottom:8px}'
+                'h2{font-size:1.3em}h3{font-size:1.1em}'
+                'code{background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:0.9em}'
+                'pre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto}'
+                'pre code{background:none;padding:0}'
+                'table{border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px}th{background:#f8f8f8}'
+                'blockquote{border-left:4px solid #ddd;padding-left:16px;color:#666;margin:12px 0}'
+                'img{max-width:100%;border-radius:4px}'
+                '</style></head><body>'
+                f'{md_html}'
+                '</body></html>'
+            )
+
         with open(out_path, "w", encoding="utf-8") as f:
-            f.write(md_content)
+            f.write(output_content)
 
         add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
+        if _is_cancelled(task_id):
+            if os.path.exists(out_path):
+                os.remove(out_path)
+            task.status = TaskStatus.FAILED
+            task.error_message = "任务已取消"
+            task.completed_at = datetime.now(timezone.utc)
+            db.commit()
+            return
         task.output_path = out_path
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
+        _notify_task_change(task_id, "completed")
     except Exception as e:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
         if task:
@@ -245,13 +339,30 @@ def _process_task_sync(task_id: int):
             task.completed_at = datetime.now(timezone.utc)
             db.commit()
             add_log(f"任务失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
+            _notify_task_change(task_id, "failed", error_message=str(e))
     finally:
+        with _cancel_lock:
+            _cancelled_tasks.discard(task_id)
         db.close()
 
 
 async def _process_task(task_id: int):
     async with _task_semaphore:
         await asyncio.to_thread(_process_task_sync, task_id)
+
+
+@router.get("/concurrency")
+async def get_concurrency():
+    return {"concurrency": _max_concurrency}
+
+
+@router.put("/concurrency")
+async def set_concurrency_endpoint(body: dict):
+    n = body.get("concurrency", 5)
+    if not isinstance(n, int) or n < 1 or n > 20:
+        raise HTTPException(400, "concurrency must be 1-20")
+    set_concurrency(n)
+    return {"concurrency": _max_concurrency}
 
 
 @router.post("/test-connection")
@@ -286,13 +397,40 @@ async def get_stats(db: Session = Depends(get_db)):
         .all()
     )
     status_map = {s.value: c for s, c in by_status}
+    avg_row = db.execute(text(
+        "SELECT AVG(STRFTIME('%s', completed_at) - STRFTIME('%s', started_at)) * 1000 "
+        "FROM file_tasks WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL"
+    )).scalar()
+    avg_duration_ms = float(avg_row) if avg_row else 0
     return {
         "total": total,
         "pending": status_map.get("pending", 0),
         "processing": status_map.get("processing", 0),
         "completed": status_map.get("completed", 0),
         "failed": status_map.get("failed", 0),
+        "avg_duration_ms": avg_duration_ms,
     }
+
+
+@router.get("/tasks/events")
+async def task_events():
+    async def _stream():
+        q: asyncio.Queue = asyncio.Queue(maxsize=128)
+        async with _sse_lock:
+            _sse_subscribers.append(q)
+        try:
+            yield f"data: {_json.dumps({'type': 'connected'})}\n\n"
+            while True:
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=30)
+                    yield f"data: {msg}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            async with _sse_lock:
+                if q in _sse_subscribers:
+                    _sse_subscribers.remove(q)
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 MAX_FILE_SIZE = 200 * 1024 * 1024
@@ -305,8 +443,8 @@ ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp",
 async def upload_files(
     files: list[UploadFile] = File(...),
     backend: str = Form("hybrid-http-client"),
-    mineru_api: str = Form("http://172.16.100.26:8086/file_parse"),
-    server_url: str = Form("http://10.8.132.224:6002/v1"),
+    mineru_api: str = Form("http://localhost:8086/file_parse"),
+    server_url: str = Form("http://localhost:6002/v1"),
     mineru_endpoints: str = Form(None),
     parse_method: str = Form("auto"),
     lang_list: str = Form("ch"),
@@ -326,11 +464,22 @@ async def upload_files(
     auto_convert: str = Form("true"),
     db: Session = Depends(get_db),
 ):
-    if output_format not in ("md", "txt"):
-        raise HTTPException(400, "output_format must be md or txt")
+    if output_format not in ("md", "txt", "html"):
+        raise HTTPException(400, "output_format must be md, txt or html")
 
     def _b(val: str) -> bool:
         return val.lower() in ("true", "1", "yes")
+
+    try:
+        _start_page = int(start_page_id)
+        _end_page = int(end_page_id)
+        _timeout = int(timeout)
+    except ValueError:
+        raise HTTPException(400, "start_page_id, end_page_id, timeout must be integers")
+    if _timeout < 10 or _timeout > 7200:
+        raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
+    if _start_page < 0:
+        raise HTTPException(400, "start_page_id must be >= 0")
 
     endpoints_list = None
     if mineru_endpoints:
@@ -373,17 +522,19 @@ async def upload_files(
             return_images=_b(return_images),
             response_format_zip=_b(response_format_zip),
             replace_image_url=_b(replace_image_url),
-            start_page_id=int(start_page_id),
-            end_page_id=int(end_page_id),
+            start_page_id=_start_page,
+            end_page_id=_end_page,
             output_format=OutputFormat(output_format),
-            timeout=int(timeout),
+            timeout=_timeout,
             auto_convert_doc=_b(auto_convert),
+            api_key=ep.get("apiKey") if ep else None,
         )
         db.add(task)
         db.commit()
         db.refresh(task)
         results.append(task.to_dict())
         add_log(f"文件上传成功: {file.filename}", task_id=task.id)
+        _notify_task_change(task.id, "pending")
 
         if _is_doc_file(file.filename) and not _b(auto_convert):
             add_log(f"文档格式文件，等待手动转换为 PDF", task_id=task.id)
@@ -571,12 +722,33 @@ async def update_task(
         task.parse_method = parse_method
     if lang_list:
         task.lang_list = lang_list
-    if output_format and output_format in ("md", "txt"):
+    if output_format and output_format in ("md", "txt", "html"):
         task.output_format = OutputFormat(output_format)
     if timeout:
-        task.timeout = int(timeout)
+        try:
+            t = int(timeout)
+            task.timeout = max(60, min(t, 3600))
+        except (ValueError, TypeError):
+            raise HTTPException(400, "timeout must be 60-3600")
     db.commit()
     db.refresh(task)
+    return task.to_dict()
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(FileTask).filter(FileTask.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if task.status not in (TaskStatus.PENDING, TaskStatus.PROCESSING):
+        raise HTTPException(400, "只能取消等待中或处理中的任务")
+    with _cancel_lock:
+        _cancelled_tasks.add(task_id)
+    task.status = TaskStatus.FAILED
+    task.error_message = "用户取消"
+    task.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    add_log(f"任务已取消", task_id=task_id, level="warn")
     return task.to_dict()
 
 
@@ -604,11 +776,12 @@ async def preview_result(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Task not found")
     if task.status != TaskStatus.COMPLETED or not task.output_path:
         raise HTTPException(400, "Result not ready")
-    if not os.path.exists(task.output_path):
+    safe = _safe_path(task.output_path)
+    if not os.path.exists(safe):
         raise HTTPException(404, "Output file missing on disk")
-    async with aiofiles.open(task.output_path, "r", encoding="utf-8") as f:
+    async with aiofiles.open(safe, "r", encoding="utf-8") as f:
         content = await f.read()
-    return {"content": content, "filename": os.path.basename(task.output_path), "format": task.output_format.value}
+    return {"content": content, "filename": os.path.basename(safe), "format": task.output_format.value}
 
 
 @router.get("/tasks/{task_id}/download")
@@ -618,11 +791,12 @@ async def download_result(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Task not found")
     if task.status != TaskStatus.COMPLETED or not task.output_path:
         raise HTTPException(400, "Result not ready")
-    if not os.path.exists(task.output_path):
+    safe = _safe_path(task.output_path)
+    if not os.path.exists(safe):
         raise HTTPException(404, "Output file missing on disk")
     return FileResponse(
-        task.output_path,
-        filename=os.path.basename(task.output_path),
+        safe,
+        filename=os.path.basename(safe),
         media_type="text/markdown" if task.output_format == OutputFormat.MD else "text/plain",
     )
 
@@ -668,6 +842,7 @@ async def list_logs_grouped(
             "task_id": tid,
             "filename": task.original_filename if task else f"Task#{tid}",
             "status": task.status.value if task else "unknown",
+            "created_at": task.created_at.isoformat() if task and task.created_at else None,
             "logs": [l.to_dict() for l in logs],
         })
     return {"total": total, "items": groups}
@@ -678,3 +853,69 @@ async def clear_logs(db: Session = Depends(get_db)):
     count = db.query(ProcessLog).delete()
     db.commit()
     return {"detail": "cleared", "count": count}
+
+
+@router.get("/storage")
+async def get_storage_stats():
+    def _dir_size(path: str) -> int:
+        total_bytes = 0
+        if not os.path.exists(path):
+            return 0
+        for dirpath, _, filenames in os.walk(path):
+            for fn in filenames:
+                fp = os.path.join(dirpath, fn)
+                if os.path.isfile(fp):
+                    total_bytes += os.path.getsize(fp)
+        return total_bytes
+
+    uploads_size = _dir_size(UPLOAD_DIR)
+    outputs_size = _dir_size(OUTPUT_DIR)
+    converted_size = _dir_size(CONVERT_DIR)
+    db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mineru_batch.db")
+    db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    return {
+        "uploads": uploads_size,
+        "outputs": outputs_size,
+        "converted": converted_size,
+        "database": db_size,
+        "total": uploads_size + outputs_size + converted_size + db_size,
+    }
+
+
+@router.post("/storage/clean")
+async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
+    targets = (body or {}).get("targets", [])
+    cleaned = {}
+    if "outputs" in targets:
+        n = 0
+        for f in os.listdir(OUTPUT_DIR):
+            fp = os.path.join(OUTPUT_DIR, f)
+            if os.path.isfile(fp):
+                os.remove(fp)
+                n += 1
+        cleaned["outputs"] = n
+        db.query(FileTask).filter(FileTask.output_path.isnot(None)).update({"output_path": None})
+        db.commit()
+    if "converted" in targets:
+        n = 0
+        for f in os.listdir(CONVERT_DIR):
+            fp = os.path.join(CONVERT_DIR, f)
+            if os.path.isfile(fp) and not f.startswith("."):
+                os.remove(fp)
+                n += 1
+        cleaned["converted"] = n
+    return {"detail": "cleaned", "counts": cleaned}
+
+
+@router.get("/stats/trend")
+async def get_stats_trend(days: int = Query(7, ge=1, le=30), db: Session = Depends(get_db)):
+    rows = db.execute(text("""
+        SELECT DATE(created_at) AS d,
+               SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+               SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
+        FROM file_tasks
+        WHERE created_at >= DATE('now', '-' || :days || ' days')
+        GROUP BY DATE(created_at)
+        ORDER BY d
+    """), {"days": days}).fetchall()
+    return [{"date": r[0], "completed": r[1], "failed": r[2]} for r in rows]

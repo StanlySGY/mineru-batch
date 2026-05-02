@@ -1,19 +1,28 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
-import { Delete, Refresh, ArrowDown } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Delete, Refresh, ArrowDown, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type LogGroup } from '../api'
+import { formatTime, statusTag } from '../utils/format'
 
 const groups = ref<LogGroup[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(20)
 const filterLevel = ref('')
+const filterSearch = ref('')
 const loading = ref(false)
 const firstLoad = ref(true)
 const expandedTaskIds = ref<Set<number>>(new Set())
 const expandedLogId = ref<number | null>(null)
+const allExpanded = ref(false)
 let timer: ReturnType<typeof setInterval> | null = null
+
+const levelSummary = computed(() => {
+  const s = { info: 0, warn: 0, error: 0 }
+  for (const g of groups.value) for (const l of g.logs) s[l.level] = (s[l.level] || 0) + 1
+  return s
+})
 
 async function loadLogs() {
   loading.value = true
@@ -56,7 +65,22 @@ function toggleLogDetail(id: number) {
   expandedLogId.value = expandedLogId.value === id ? null : id
 }
 
+function toggleAllGroups() {
+  if (allExpanded.value) {
+    expandedTaskIds.value = new Set()
+    allExpanded.value = false
+  } else {
+    expandedTaskIds.value = new Set(groups.value.map(g => g.task_id))
+    allExpanded.value = true
+  }
+}
+
 function handleFilterChange() {
+  page.value = 1
+  loadLogs()
+}
+
+function handleSearch() {
   page.value = 1
   loadLogs()
 }
@@ -66,13 +90,25 @@ function handlePageChange(val: number) {
   loadLogs()
 }
 
-function formatTime(iso: string) {
-  if (!iso) return '-'
-  return new Date(iso).toLocaleString('zh-CN')
+function formatRelative(iso: string | null) {
+  if (!iso) return ''
+  const diff = Date.now() - new Date(iso).getTime()
+  if (diff < 60000) return '刚刚'
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' 分钟前'
+  if (diff < 86400000) return Math.floor(diff / 3600000) + ' 小时前'
+  return Math.floor(diff / 86400000) + ' 天前'
+}
+
+function matchSearch(msg: string): boolean {
+  if (!filterSearch.value) return true
+  return msg.toLowerCase().includes(filterSearch.value.toLowerCase())
 }
 
 const statusTagType: Record<string, string> = {
-  pending: 'info', processing: 'warning', completed: 'success', failed: 'danger',
+  pending: 'info',
+  processing: 'warning',
+  completed: 'success',
+  failed: 'danger',
 }
 const statusLabel: Record<string, string> = {
   pending: '等待', processing: '处理中', completed: '完成', failed: '失败',
@@ -99,11 +135,18 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
     <div class="card-header">
       <span class="card-title">运行日志</span>
       <div class="filter-row">
-        <el-select v-model="filterLevel" placeholder="级别" clearable style="width:100px" @change="handleFilterChange">
+        <el-input v-model="filterSearch" placeholder="搜索日志内容" clearable style="width:160px" size="small" :prefix-icon="Search" @clear="handleSearch" @keyup.enter="handleSearch" />
+        <el-select v-model="filterLevel" placeholder="级别" clearable style="width:100px" size="small" @change="handleFilterChange">
           <el-option label="INFO" value="info" />
           <el-option label="WARN" value="warn" />
           <el-option label="ERROR" value="error" />
         </el-select>
+        <span class="level-badges">
+          <span v-if="levelSummary.info" class="level-badge info">{{ levelSummary.info }} INFO</span>
+          <span v-if="levelSummary.warn" class="level-badge warn">{{ levelSummary.warn }} WARN</span>
+          <span v-if="levelSummary.error" class="level-badge error">{{ levelSummary.error }} ERROR</span>
+        </span>
+        <el-button size="small" plain @click="toggleAllGroups">{{ allExpanded ? '收起全部' : '展开全部' }}</el-button>
         <el-button :icon="Refresh" @click="loadLogs" circle size="small" />
         <el-button :icon="Delete" @click="handleClear" type="danger" size="small" plain>清空</el-button>
       </div>
@@ -126,6 +169,10 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <el-tag :type="statusTagType[g.status] as any" size="small" class="group-status">
           {{ statusLabel[g.status] || g.status }}
         </el-tag>
+        <span class="group-meta">
+          <span v-if="g.created_at" class="group-time">{{ formatTime(g.created_at) }}</span>
+          <span class="group-relative">{{ formatRelative(g.created_at) }}</span>
+        </span>
         <span class="group-count">{{ g.logs.length }} 条日志</span>
       </div>
 
@@ -133,6 +180,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         <div
           v-for="log in g.logs"
           :key="log.id"
+          v-show="matchSearch(log.message)"
           class="log-row"
           :class="{ 'log-error': log.level === 'error', 'log-warn': log.level === 'warn' }"
         >
@@ -179,6 +227,11 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 .group-task-id { color: #409eff; font-weight: 700; font-size: 13px; flex-shrink: 0; }
 .group-filename { flex: 1; font-weight: 500; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-status { flex-shrink: 0; }
+.group-meta {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px; flex-shrink: 0;
+}
+.group-time { font-size: 12px; color: #606266; white-space: nowrap; }
+.group-relative { font-size: 11px; color: #909399; }
 .group-count { font-size: 12px; color: #909399; flex-shrink: 0; }
 
 .group-logs { border-top: 1px solid #ebeef5; }
@@ -194,7 +247,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; flex-shrink: 0;
 }
 .log-msg { flex: 1; color: #303133; word-break: break-all; }
-.log-time { color: #909399; font-size: 12px; flex-shrink: 0; white-space: nowrap; }
+.log-time { color: #606266; font-size: 12px; flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .log-expand { color: #909399; transition: transform 0.2s; flex-shrink: 0; }
 .log-expand.rotated { transform: rotate(180deg); }
 .log-detail { padding: 0 14px 10px 14px; }
@@ -205,4 +258,12 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .empty-state { padding: 40px 0; }
+.level-badges { display: flex; gap: 4px; }
+.level-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 3px;
+  color: #fff; font-weight: 600;
+}
+.level-badge.info { background: #67c23a; }
+.level-badge.warn { background: #e6a23c; }
+.level-badge.error { background: #f56c6c; }
 </style>

@@ -1,0 +1,13 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8900:8900"
+    volumes:
+      - data:/data
+    environment:
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+
+volumes:
+  data:
