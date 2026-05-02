@@ -116,7 +116,11 @@ onUnmounted(() => {
     </header>
 
     <main class="page-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </main>
   </div>
 </div>
@@ -206,7 +210,7 @@ onUnmounted(() => {
 
 .page-content { flex: 1; overflow-y: auto; padding: 24px; width: 100%; }
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 
 .sidebar-overlay {
