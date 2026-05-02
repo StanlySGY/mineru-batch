@@ -41,6 +41,14 @@ _task_semaphore = asyncio.Semaphore(5)
 _cancelled_tasks: set[int] = set()
 _cancel_lock = threading.Lock()
 _max_concurrency = 5
+_SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.path.normpath(CONVERT_DIR))
+
+
+def _safe_path(path: str) -> str:
+    normalized = os.path.normpath(path)
+    if not any(normalized.startswith(d) for d in _SAFE_DIRS):
+        raise HTTPException(403, "Access denied")
+    return normalized
 
 
 def set_concurrency(n: int):
@@ -282,15 +290,17 @@ def _process_task_sync(task_id: int):
 
         output_content = md_content
         if ext == "html":
+            import html as _html
+            escaped = _html.escape(md_content)
             output_content = (
                 '<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">'
-                f'<title>{original_stem}</title>'
+                f'<title>{_html.escape(original_stem)}</title>'
                 '<style>body{max-width:900px;margin:40px auto;font-family:system-ui,sans-serif;line-height:1.8;color:#333;padding:0 20px}'
                 'code{background:#f4f4f4;padding:2px 6px;border-radius:3px}pre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto}'
                 'table{border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px}th{background:#f8f8f8}'
                 'blockquote{border-left:4px solid #ddd;padding-left:16px;color:#666;margin:12px 0}'
                 'img{max-width:100%;border-radius:4px}</style></head><body>'
-                f'<pre style="white-space:pre-wrap;word-break:break-word">{md_content}</pre>'
+                f'<pre style="white-space:pre-wrap;word-break:break-word">{escaped}</pre>'
                 '</body></html>'
             )
 
@@ -749,11 +759,12 @@ async def preview_result(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Task not found")
     if task.status != TaskStatus.COMPLETED or not task.output_path:
         raise HTTPException(400, "Result not ready")
-    if not os.path.exists(task.output_path):
+    safe = _safe_path(task.output_path)
+    if not os.path.exists(safe):
         raise HTTPException(404, "Output file missing on disk")
-    async with aiofiles.open(task.output_path, "r", encoding="utf-8") as f:
+    async with aiofiles.open(safe, "r", encoding="utf-8") as f:
         content = await f.read()
-    return {"content": content, "filename": os.path.basename(task.output_path), "format": task.output_format.value}
+    return {"content": content, "filename": os.path.basename(safe), "format": task.output_format.value}
 
 
 @router.get("/tasks/{task_id}/download")
@@ -763,11 +774,12 @@ async def download_result(task_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Task not found")
     if task.status != TaskStatus.COMPLETED or not task.output_path:
         raise HTTPException(400, "Result not ready")
-    if not os.path.exists(task.output_path):
+    safe = _safe_path(task.output_path)
+    if not os.path.exists(safe):
         raise HTTPException(404, "Output file missing on disk")
     return FileResponse(
-        task.output_path,
-        filename=os.path.basename(task.output_path),
+        safe,
+        filename=os.path.basename(safe),
         media_type="text/markdown" if task.output_format == OutputFormat.MD else "text/plain",
     )
 
@@ -865,6 +877,8 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
                 os.remove(fp)
                 n += 1
         cleaned["outputs"] = n
+        db.query(FileTask).filter(FileTask.output_path.isnot(None)).update({"output_path": None})
+        db.commit()
     if "converted" in targets:
         n = 0
         for f in os.listdir(CONVERT_DIR):
