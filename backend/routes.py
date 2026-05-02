@@ -26,9 +26,9 @@ from models import (
 
 router = APIRouter()
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs")
-CONVERT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "converted")
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
+OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs"))
+CONVERT_DIR = os.environ.get("CONVERT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "converted"))
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)

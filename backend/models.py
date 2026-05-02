@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, ForeignKey
 from sqlalchemy import create_engine, event
@@ -123,7 +124,7 @@ class ProcessLog(Base):
         }
 
 
-DATABASE_URL = "sqlite:///./mineru_batch.db"
+DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./mineru_batch.db")
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 

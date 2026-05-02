@@ -31,6 +31,14 @@ cd frontend && npm run dev
 
 开发模式下前端访问 http://localhost:3001，API 请求自动代理到后端。
 
+## Docker 部署
+
+```bash
+docker compose up -d
+```
+
+访问 http://localhost:8900。数据持久化在 Docker volume `data` 中。
+
 ## 其他命令
 
 ```bash
@@ -45,6 +53,10 @@ make clean    # 清理构建产物
 |------|--------|------|
 | `DEV_MODE` | 无 | 设为 `1` 跳过静态文件服务，使用 Vite dev server |
 | `CORS_ORIGINS` | 无 | 允许的跨域来源（逗号分隔），生产模式下无需设置 |
+| `UPLOAD_DIR` | `./uploads` | 上传文件目录 |
+| `OUTPUT_DIR` | `./outputs` | 输出文件目录 |
+| `CONVERT_DIR` | `./converted` | 文档转换目录 |
+| `DATABASE_URL` | `sqlite:///./mineru_batch.db` | 数据库连接 URL |
 
 ## 目录结构
 
