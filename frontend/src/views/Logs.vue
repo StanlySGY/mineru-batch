@@ -105,8 +105,10 @@ function matchSearch(msg: string): boolean {
 }
 
 const statusTagType: Record<string, string> = {
-  pending: statusTag.pending.type, processing: statusTag.processing.type,
-  completed: statusTag.completed.type, failed: statusTag.failed.type,
+  pending: 'info',
+  processing: 'warning',
+  completed: 'success',
+  failed: 'danger',
 }
 const statusLabel: Record<string, string> = {
   pending: '等待', processing: '处理中', completed: '完成', failed: '失败',

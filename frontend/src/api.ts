@@ -272,7 +272,10 @@ export const api = {
     return data as { date: string; completed: number; failed: number }[]
   },
 
-  onTaskEvent(callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void): () => void {
+  onTaskEvent(
+    callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void,
+    onStatusChange?: (connected: boolean) => void,
+  ): () => void {
     let reconnectAttempts = 0
     let es: EventSource | null = null
     let stopped = false
@@ -280,11 +283,15 @@ export const api = {
     function connect() {
       if (stopped) return
       es = new EventSource('/api/tasks/events')
-      es.onmessage = (e) => {
+      es.onopen = () => {
         reconnectAttempts = 0
+        onStatusChange?.(true)
+      }
+      es.onmessage = (e) => {
         try { callback(JSON.parse(e.data)) } catch {}
       }
       es.onerror = () => {
+        onStatusChange?.(false)
         es?.close()
         if (stopped) return
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)

@@ -39,8 +39,10 @@ onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
   api.getConcurrency().then(r => concurrency.value = r.concurrency).catch(() => {})
-  sseClose = api.onTaskEvent(() => { sseConnected.value = true })
-  setTimeout(() => { if (!sseConnected.value) sseConnected.value = false }, 5000)
+  sseClose = api.onTaskEvent(
+    () => {},
+    (connected) => { sseConnected.value = connected },
+  )
 })
 onUnmounted(() => {
   if (sseClose) sseClose()

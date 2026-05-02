@@ -17,7 +17,6 @@ const recentTasks = ref<any[]>([])
 const loading = ref(false)
 const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
-let timer: ReturnType<typeof setInterval> | null = null
 let sseClose: (() => void) | null = null
 
 const chartRef = shallowRef<echarts.ECharts | null>(null)
@@ -107,22 +106,27 @@ function handleCardClick(route: string) {
 }
 
 const statusLabel: Record<string, string> = {
-  pending: statusTag.pending.label, processing: statusTag.processing.label,
-  completed: statusTag.completed.label, failed: statusTag.failed.label,
+  pending: '等待中', processing: '处理中', completed: '已完成', failed: '失败',
 }
+
+let sseDebounce: ReturnType<typeof setTimeout> | null = null
+const resizeHandler = () => chartRef.value?.resize()
 
 onMounted(() => {
   loadStats().then(loadTrend)
-  timer = setInterval(loadStats, 30000)
   sseClose = api.onTaskEvent((evt) => {
-    if (evt.type === 'task_update') { loadStats(); loadTrend() }
+    if (evt.type === 'task_update') {
+      if (sseDebounce) clearTimeout(sseDebounce)
+      sseDebounce = setTimeout(() => { loadStats(); loadTrend() }, 500)
+    }
   })
-  window.addEventListener('resize', () => chartRef.value?.resize())
+  window.addEventListener('resize', resizeHandler)
 })
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  if (sseDebounce) clearTimeout(sseDebounce)
   if (sseClose) sseClose()
   chartRef.value?.dispose()
+  window.removeEventListener('resize', resizeHandler)
 })
 </script>
 

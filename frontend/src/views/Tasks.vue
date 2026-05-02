@@ -54,9 +54,8 @@ const filterSearch = ref('')
 const loading = ref(false)
 const firstLoad = ref(true)
 const now = ref(Date.now())
-let timer: ReturnType<typeof setInterval> | null = null
-let sseClose: (() => void) | null = null
 let clockTimer: ReturnType<typeof setInterval> | null = null
+let sseClose: (() => void) | null = null
 
 const selectedIds = ref<number[]>([])
 
@@ -325,24 +324,27 @@ const detailTimeline = computed(() => {
   return items
 })
 
+let sseDebounce: ReturnType<typeof setTimeout> | null = null
+
 onMounted(() => {
   loadTasks()
-  timer = setInterval(() => loadTasks(), 30000)
   clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
   sseClose = api.onTaskEvent((evt) => {
     if (evt.type === 'task_update') {
-      loadTasks()
+      if (sseDebounce) clearTimeout(sseDebounce)
+      sseDebounce = setTimeout(() => loadTasks(), 300)
       if (evt.status === 'completed' || evt.status === 'failed') {
         const task = tasks.value.find(t => t.id === evt.task_id)
         if (task) notifyTaskComplete(task.original_filename, evt.status)
       }
     }
   })
+  })
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
   if (clockTimer) clearInterval(clockTimer)
+  if (sseDebounce) clearTimeout(sseDebounce)
   if (sseClose) sseClose()
   window.removeEventListener('resize', checkMobile)
 })
