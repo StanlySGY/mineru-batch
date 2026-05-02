@@ -15,6 +15,7 @@ http.interceptors.response.use(
       else if (status && status >= 400) {
         const msg = err.response?.data?.detail
         if (msg && typeof msg === 'string') ElMessage.error(msg)
+        else ElMessage.error(`请求失败 (${status})`)
       }
     }
     return Promise.reject(err)
@@ -101,12 +102,12 @@ export interface UploadOptions {
   autoConvert: boolean
 }
 
-export function requestNotificationPermission(): boolean {
+export async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
   if (Notification.permission === 'denied') return false
-  Notification.requestPermission()
-  return Notification.permission === 'granted'
+  const result = await Notification.requestPermission()
+  return result === 'granted'
 }
 
 export function notifyTaskComplete(filename: string, status: string) {
@@ -278,6 +279,7 @@ export const api = {
     onStatusChange?: (connected: boolean) => void,
   ): () => void {
     let reconnectAttempts = 0
+    const MAX_RECONNECT = 30
     let es: EventSource | null = null
     let stopped = false
 
@@ -295,12 +297,27 @@ export const api = {
         onStatusChange?.(false)
         es?.close()
         if (stopped) return
+        if (reconnectAttempts >= MAX_RECONNECT) return
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
         reconnectAttempts++
         setTimeout(connect, delay)
       }
     }
     connect()
-    return () => { stopped = true; es?.close() }
+
+    function onVisible() {
+      if (document.visibilityState === 'visible' && (!es || es.readyState === EventSource.CLOSED)) {
+        reconnectAttempts = 0
+        es?.close()
+        connect()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      stopped = true
+      es?.close()
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   },
 }

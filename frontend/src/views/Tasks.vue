@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
@@ -38,17 +38,22 @@ function ensureHljs() {
 
 marked.setOptions({ breaks: true, gfm: true })
 
-const renderedPreview = computed(() => {
-  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') return ''
+const renderedPreview = ref('')
+
+watch([previewContent, previewFormat, previewMode], () => {
+  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') {
+    renderedPreview.value = ''
+    return
+  }
   ensureHljs()
-  const html = marked.parse(previewContent.value) as string
-  const clean = DOMPurify.sanitize(html, { ADD_TAGS: ['code', 'pre'], ADD_ATTR: ['class'] })
+  const raw = marked.parse(previewContent.value) as string
+  const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre'], ADD_ATTR: ['class'] })
   const el = document.createElement('div')
   el.innerHTML = clean
   el.querySelectorAll('pre code').forEach(block => {
     hljs.highlightElement(block as HTMLElement)
   })
-  return el.innerHTML
+  renderedPreview.value = el.innerHTML
 })
 
 const tasks = ref<TaskItem[]>([])
@@ -62,9 +67,21 @@ const loading = ref(false)
 const firstLoad = ref(true)
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
+let clockActive = false
 let sseClose: (() => void) | null = null
 
+function startClock() {
+  if (clockActive) return
+  clockActive = true
+  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+}
+function stopClock() {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  clockActive = false
+}
+
 const selectedIds = ref<number[]>([])
+const tableRef = ref<InstanceType<typeof import('element-plus')['ElTable']> | null>(null)
 
 const statusSummary = computed(() => {
   const s = { pending: 0, processing: 0, completed: 0, failed: 0 }
@@ -300,7 +317,10 @@ function isLive(row: TaskItem) {
 }
 
 function selectAllCurrent() {
-  selectedIds.value = tasks.value.map(r => r.id)
+  if (!tableRef.value) return
+  tasks.value.forEach(row => {
+    tableRef.value!.toggleRowSelection(row, true)
+  })
 }
 
 function exportCSV() {
@@ -333,9 +353,13 @@ const detailTimeline = computed(() => {
 
 let sseDebounce: ReturnType<typeof setTimeout> | null = null
 
+watch(tasks, (list) => {
+  if (list.some(t => t.status === 'processing')) startClock()
+  else stopClock()
+}, { immediate: true })
+
 onMounted(() => {
   loadTasks()
-  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
   sseClose = api.onTaskEvent((evt) => {
     if (evt.type === 'task_update') {
       if (sseDebounce) clearTimeout(sseDebounce)
@@ -349,7 +373,7 @@ onMounted(() => {
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => {
-  if (clockTimer) clearInterval(clockTimer)
+  stopClock()
   if (sseDebounce) clearTimeout(sseDebounce)
   if (sseClose) sseClose()
   window.removeEventListener('resize', checkMobile)
@@ -405,7 +429,7 @@ function checkMobile() {
     <span class="summary-spacer" />
     <el-button size="small" text @click="selectAllCurrent">全选当前页</el-button>
   </div>
-  <el-table v-if="!isMobile" :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
+  <el-table v-if="!isMobile" ref="tableRef" :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
     <el-table-column type="selection" width="40" />
     <el-table-column prop="id" label="ID" width="60" sortable />
     <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>

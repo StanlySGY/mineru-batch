@@ -106,5 +106,5 @@ if not DEV_MODE and FRONTEND_DIST.exists():
     @app.get("/{full_path:path}")
     async def spa_fallback(request: Request, full_path: str):
         if full_path.startswith("api/"):
-            return
+            return Response(status_code=404)
         return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})

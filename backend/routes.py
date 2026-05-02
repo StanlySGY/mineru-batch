@@ -831,19 +831,27 @@ async def list_logs_grouped(
     total = len(all_ids)
     paged_ids = all_ids[(page - 1) * size: page * size]
 
+    tasks_map = {}
+    if paged_ids:
+        for t in db.query(FileTask).filter(FileTask.id.in_(paged_ids)).all():
+            tasks_map[t.id] = t
+
+    logs_q = db.query(ProcessLog).filter(ProcessLog.task_id.in_(paged_ids))
+    if level:
+        logs_q = logs_q.filter(ProcessLog.level == level)
+    logs_by_task: dict = {}
+    for log in logs_q.order_by(ProcessLog.id.asc()).all():
+        logs_by_task.setdefault(log.task_id, []).append(log)
+
     groups = []
     for tid in paged_ids:
-        task = db.query(FileTask).filter(FileTask.id == tid).first()
-        q = db.query(ProcessLog).filter(ProcessLog.task_id == tid)
-        if level:
-            q = q.filter(ProcessLog.level == level)
-        logs = q.order_by(ProcessLog.id.asc()).all()
+        task = tasks_map.get(tid)
         groups.append({
             "task_id": tid,
             "filename": task.original_filename if task else f"Task#{tid}",
             "status": task.status.value if task else "unknown",
             "created_at": task.created_at.isoformat() if task and task.created_at else None,
-            "logs": [l.to_dict() for l in logs],
+            "logs": [l.to_dict() for l in logs_by_task.get(tid, [])],
         })
     return {"total": total, "items": groups}
 
