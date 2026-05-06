@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError } from '../utils/error'
 import { formatTime, formatSize, statusTag } from '../utils/format'
+import { useConfig } from '../stores/config'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/core'
@@ -103,35 +104,45 @@ function highlightSearch(text: string, query: string): string {
   })
 }
 
-const renderedPreview = computed(() => {
-  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') return ''
-  ensureHljs()
-  const raw = marked.parse(previewContent.value) as string
-  const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre', 'mark'], ADD_ATTR: ['class'] })
-  const el = document.createElement('div')
-  el.innerHTML = clean
-  el.querySelectorAll('pre code').forEach(block => {
-    hljs.highlightElement(block as HTMLElement)
-  })
-  let html = el.innerHTML
-  if (previewSearch.value) {
-    const escaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(`(${escaped})`, 'gi')
-    const matches = html.match(regex)
-    previewSearchMatches.value = matches ? matches.length : 0
-    if (previewSearchMatches.value > 0) {
-      let idx = 0
-      html = html.replace(regex, () => {
-        idx++
-        return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
-      })
-    }
-  } else {
-    previewSearchMatches.value = 0
-    previewSearchIdx.value = 0
+const renderedPreview = ref('')
+const previewRendering = ref(false)
+
+watch([previewContent, previewFormat, previewMode, previewSearch, previewSearchIdx], () => {
+  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') {
+    renderedPreview.value = ''
+    return
   }
-  return html
-})
+  previewRendering.value = true
+  setTimeout(() => {
+    ensureHljs()
+    const raw = marked.parse(previewContent.value) as string
+    const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre', 'mark'], ADD_ATTR: ['class'] })
+    const el = document.createElement('div')
+    el.innerHTML = clean
+    el.querySelectorAll('pre code').forEach(block => {
+      hljs.highlightElement(block as HTMLElement)
+    })
+    let html = el.innerHTML
+    if (previewSearch.value) {
+      const escaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`(${escaped})`, 'gi')
+      const matches = html.match(regex)
+      previewSearchMatches.value = matches ? matches.length : 0
+      if (previewSearchMatches.value > 0) {
+        let idx = 0
+        html = html.replace(regex, () => {
+          idx++
+          return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+        })
+      }
+    } else {
+      previewSearchMatches.value = 0
+      previewSearchIdx.value = 0
+    }
+    renderedPreview.value = html
+    previewRendering.value = false
+  }, 0)
+}, { immediate: true })
 
 const sourcePreviewHighlighted = computed(() => {
   if (!previewContent.value) return ''
@@ -165,6 +176,30 @@ watch(previewSearch, () => { previewSearchIdx.value = previewSearchMatches.value
 
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
+
+const cfg = useConfig()
+
+function applyTaskAsPreset(task: TaskItem) {
+  cfg.backend.value = task.backend
+  cfg.mineruApi.value = task.mineru_api
+  cfg.serverUrl.value = task.server_url
+  cfg.parseMethod.value = task.parse_method
+  cfg.langList.value = task.lang_list
+  cfg.formulaEnable.value = task.formula_enable
+  cfg.tableEnable.value = task.table_enable
+  cfg.returnMd.value = task.return_md
+  cfg.returnMiddleJson.value = task.return_middle_json
+  cfg.returnModelOutput.value = task.return_model_output
+  cfg.returnContentList.value = task.return_content_list
+  cfg.returnImages.value = task.return_images
+  cfg.responseFormatZip.value = task.response_format_zip
+  cfg.replaceImageUrl.value = task.replace_image_url
+  cfg.startPageId.value = task.start_page_id
+  cfg.endPageId.value = task.end_page_id
+  cfg.outputFormat.value = task.output_format
+  cfg.timeout.value = task.timeout
+  ElMessage.success('已将任务参数应用为当前配置，请前往上传页重新提交')
+}
 
 async function loadTasks() {
   loading.value = true
@@ -602,7 +637,10 @@ function checkMobile() {
         </template>
       </div>
     </div>
-    <div v-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
+    <div v-if="previewRendering" class="preview-rendering">
+      <el-skeleton :rows="10" animated />
+    </div>
+    <div v-else-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
     <pre v-else-if="previewContent" class="text-preview" v-html="sourcePreviewHighlighted" />
   </div>
   <template #footer>
@@ -658,6 +696,7 @@ function checkMobile() {
       <el-button type="primary" :disabled="detailTask.status !== 'completed'" @click="handleDownload(detailTask); detailVisible = false">下载结果</el-button>
       <el-button type="success" :disabled="detailTask.status !== 'completed'" @click="handlePreview(detailTask); detailVisible = false">预览结果</el-button>
       <el-button type="warning" :disabled="detailTask.status !== 'failed' && detailTask.status !== 'completed'" @click="handleRetry(detailTask); detailVisible = false">重试</el-button>
+      <el-button :icon="MagicStick" @click="applyTaskAsPreset(detailTask)">套用参数</el-button>
     </div>
   </template>
 </el-drawer>
@@ -679,6 +718,7 @@ function checkMobile() {
 .preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
 .preview-toolbar { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .preview-search { display: flex; align-items: center; gap: 6px; }
+.preview-rendering { padding: 20px 0; }
 .search-count { font-size: 12px; color: #909399; white-space: nowrap; }
 :deep(.search-highlight) { background: #ffe58f; padding: 1px 2px; border-radius: 2px; }
 :deep(.search-highlight.active) { background: #ffc53d; box-shadow: 0 0 0 2px #faad14; }

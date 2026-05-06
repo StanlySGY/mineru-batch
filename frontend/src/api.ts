@@ -135,7 +135,12 @@ export const api = {
 
   async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void, signal?: AbortSignal) {
     const form = new FormData()
-    files.forEach((f) => form.append('files', f))
+    const relativePaths: string[] = []
+    files.forEach((f) => {
+      form.append('files', f)
+      relativePaths.push((f as any).webkitRelativePath || f.name)
+    })
+    form.append('relative_paths', JSON.stringify(relativePaths))
     form.append('backend', opts.backend)
     form.append('mineru_api', opts.mineruApi)
     form.append('server_url', opts.serverUrl)
@@ -267,6 +272,11 @@ export const api = {
   async cleanStorage(targets: string[]) {
     const { data } = await http.post('/storage/clean', { targets })
     return data as { detail: string; counts: Record<string, number> }
+  },
+
+  async cleanCompletedSources() {
+    const { data } = await http.post('/storage/clean-sources')
+    return data as { detail: string; count: number; freed_bytes: number }
   },
 
   async getStatsTrend(days = 7) {

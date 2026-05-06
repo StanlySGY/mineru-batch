@@ -194,9 +194,40 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
             )
             add_log(f"MinerU 响应: HTTP {resp.status_code}", task_id=task_id,
                     level="info" if resp.status_code == 200 else "error",
-                    detail=f"status={resp.status_code}\ncontent_type={resp.headers.get('content-type','')}\nbody_preview={resp.text[:2000]}")
+                    detail=f"status={resp.status_code}\ncontent_type={resp.headers.get('content-type','')}\nbody_preview={resp.text[:2000] if resp.headers.get('content-type','').startswith('application/json') else '(binary)'}")
             if resp.status_code != 200:
                 raise RuntimeError(f"MinerU API error {resp.status_code}: {resp.text[:500]}")
+            content_type = resp.headers.get("content-type", "")
+            if "application/zip" in content_type or "application/octet-stream" in content_type:
+                add_log(f"MinerU 返回 ZIP 流，保存中...", task_id=task_id)
+                bundle_dir = os.path.join(OUTPUT_DIR, f"_bundle_{task_id}")
+                os.makedirs(bundle_dir, exist_ok=True)
+                zip_path = os.path.join(bundle_dir, "mineru_raw.zip")
+                with open(zip_path, "wb") as zf:
+                    zf.write(resp.content)
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(bundle_dir)
+                os.remove(zip_path)
+                add_log(f"ZIP 已解压到 {bundle_dir}", task_id=task_id)
+                md_content = ""
+                for root, _, files in os.walk(bundle_dir):
+                    for fn in files:
+                        if fn.endswith(".md"):
+                            with open(os.path.join(root, fn), "r", encoding="utf-8") as mf:
+                                md_content = mf.read()
+                            break
+                    if md_content:
+                        break
+                if not md_content:
+                    for root, _, files in os.walk(bundle_dir):
+                        for fn in files:
+                            if fn.endswith(".txt"):
+                                with open(os.path.join(root, fn), "r", encoding="utf-8") as mf:
+                                    md_content = mf.read()
+                                break
+                        if md_content:
+                            break
+                return {"_bundle_dir": bundle_dir, "results": {os.path.splitext(task.original_filename)[0]: {"md_content": md_content}}}
             return resp.json()
     except httpx.ConnectError as e:
         add_log(f"连接 MinerU 失败", task_id=task_id, level="error", detail=str(e))
@@ -280,18 +311,12 @@ def _process_task_sync(task_id: int):
 
         original_stem = _sanitize_filename(task.original_filename)
         ext = task.output_format.value
-        out_name = f"{original_stem}.{ext}"
-        out_path = os.path.join(OUTPUT_DIR, out_name)
-
-        counter = 1
-        while os.path.exists(out_path):
-            out_name = f"{original_stem}_{counter}.{ext}"
-            out_path = os.path.join(OUTPUT_DIR, out_name)
-            counter += 1
+        bundle_dir = result.get("_bundle_dir")
 
         output_content = md_content
         if ext == "html":
-            md_html = markdown.markdown(
+            import markdown as md_lib
+            md_html = md_lib.markdown(
                 md_content,
                 extensions=['tables', 'fenced_code', 'codehilite', 'toc'],
             )
@@ -314,10 +339,26 @@ def _process_task_sync(task_id: int):
                 '</body></html>'
             )
 
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write(output_content)
-
-        add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
+        if bundle_dir and os.path.isdir(bundle_dir):
+            final_bundle = os.path.join(OUTPUT_DIR, f"{task.id}_{original_stem}")
+            if os.path.exists(final_bundle):
+                shutil.rmtree(final_bundle)
+            shutil.move(bundle_dir, final_bundle)
+            out_path = os.path.join(final_bundle, f"output.{ext}")
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(output_content)
+            add_log(f"Bundle 已保存: {final_bundle} (含 images/json/md)", task_id=task_id)
+        else:
+            out_name = f"{original_stem}.{ext}"
+            out_path = os.path.join(OUTPUT_DIR, out_name)
+            counter = 1
+            while os.path.exists(out_path):
+                out_name = f"{original_stem}_{counter}.{ext}"
+                out_path = os.path.join(OUTPUT_DIR, out_name)
+                counter += 1
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(output_content)
+            add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
         if _is_cancelled(task_id):
             if os.path.exists(out_path):
                 os.remove(out_path)
@@ -462,6 +503,7 @@ async def upload_files(
     output_format: str = Form("md"),
     timeout: str = Form("600"),
     auto_convert: str = Form("true"),
+    relative_paths: str = Form(None),
     db: Session = Depends(get_db),
 ):
     if output_format not in ("md", "txt", "html"):
@@ -489,7 +531,14 @@ async def upload_files(
             endpoints_list = None
 
     results = []
-    for file in files:
+    rel_paths = []
+    if relative_paths:
+        try:
+            rel_paths = json.loads(relative_paths)
+        except json.JSONDecodeError:
+            rel_paths = []
+
+    for idx, file in enumerate(files):
         ext = os.path.splitext(file.filename or "")[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
@@ -502,9 +551,13 @@ async def upload_files(
         async with aiofiles.open(save_path, "wb") as f:
             await f.write(content)
 
+        original_name = file.filename
+        if idx < len(rel_paths) and rel_paths[idx] and "/" in rel_paths[idx]:
+            original_name = rel_paths[idx].replace("/", "_")
+
         ep = _pick_endpoint(endpoints_list) if endpoints_list else None
         task = FileTask(
-            original_filename=file.filename,
+            original_filename=original_name,
             saved_filename=saved_name,
             file_path=save_path,
             file_size=len(content),
@@ -661,10 +714,17 @@ async def batch_download_tasks(ids: str = Query(..., description="comma-separate
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for t in valid:
-            ext = os.path.splitext(t.output_path)[1] or ".md"
             stem = _sanitize_filename(t.original_filename)
-            arc_name = f"{stem}_{t.id}{ext}"
-            zf.write(t.output_path, arc_name)
+            if os.path.isdir(t.output_path):
+                for root, _, files in os.walk(t.output_path):
+                    for fn in files:
+                        fp = os.path.join(root, fn)
+                        arc = os.path.join(stem, os.path.relpath(fp, t.output_path))
+                        zf.write(fp, arc)
+            else:
+                ext = os.path.splitext(t.output_path)[1] or ".md"
+                arc_name = f"{stem}_{t.id}{ext}"
+                zf.write(t.output_path, arc_name)
     buf.seek(0)
     return StreamingResponse(
         buf,
@@ -794,6 +854,21 @@ async def download_result(task_id: int, db: Session = Depends(get_db)):
     safe = _safe_path(task.output_path)
     if not os.path.exists(safe):
         raise HTTPException(404, "Output file missing on disk")
+    if os.path.isdir(safe):
+        stem = _sanitize_filename(task.original_filename)
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(safe):
+                for fn in files:
+                    fp = os.path.join(root, fn)
+                    arc = os.path.join(stem, os.path.relpath(fp, safe))
+                    zf.write(fp, arc)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={stem}_bundle.zip"},
+        )
     return FileResponse(
         safe,
         filename=os.path.basename(safe),
@@ -913,6 +988,27 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
                 n += 1
         cleaned["converted"] = n
     return {"detail": "cleaned", "counts": cleaned}
+
+
+@router.post("/storage/clean-sources")
+async def clean_completed_sources(db: Session = Depends(get_db)):
+    tasks = db.query(FileTask).filter(
+        FileTask.status == TaskStatus.COMPLETED,
+        FileTask.file_path.isnot(None),
+    ).all()
+    count = 0
+    freed = 0
+    for task in tasks:
+        if task.file_path and os.path.exists(task.file_path):
+            try:
+                freed += os.path.getsize(task.file_path)
+                os.remove(task.file_path)
+                task.file_path = None
+                count += 1
+            except OSError:
+                pass
+    db.commit()
+    return {"detail": "cleaned", "count": count, "freed_bytes": freed}
 
 
 @router.get("/stats/trend")
