@@ -1,86 +1,93 @@
 # MinerU Batch
 
-<p align="center">
-  <strong>批量 PDF / 文档解析工具</strong>
-  <br>
-  基于 MinerU API，支持多节点负载均衡、任务队列、实时进度推送
-</p>
+<div align="center">
 
-<p align="center">
-  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/node-18+-green.svg" alt="Node.js 18+">
-  <img src="https://img.shields.io/badge/vue-3.5-brightgreen.svg" alt="Vue 3.5">
-  <img src="https://img.shields.io/badge/fastapi-0.110+-009688.svg" alt="FastAPI">
-  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
-</p>
+**批量 PDF / 文档解析工具，基于 MinerU API**
+
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
+[![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+</div>
 
 ---
 
 ## 功能特性
 
-| 分类 | 功能 |
-|------|------|
-| **批量处理** | 多文件上传、任务队列、并发控制 (1-20)、自动重试 |
-| **文件支持** | PDF、图片 (PNG/JPG/BMP/TIFF/WebP)、Word、PPT、Excel |
-| **多节点** | MinerU 服务节点管理、轮询负载均衡、连接测试 |
-| **任务管理** | 状态筛选、文件名搜索、批量操作 (删除/重试/转换/下载) |
-| **结果预览** | Markdown 渲染、源码切换、全文搜索、代码高亮 |
-| **数据统计** | Dashboard 概览、7 天趋势图、文件类型分布、成功率/耗时 |
-| **配置管理** | 配置预设、导入/导出 JSON、一键恢复默认 |
-| **实时推送** | SSE 任务状态推送、浏览器桌面通知 |
-| **存储管理** | 磁盘占用统计、按目录清理 |
+- **批量上传解析** — 拖拽上传 PDF / 图片 / Word / PPT / Excel，自动排队处理
+- **多节点负载均衡** — 配置多个 MinerU 服务节点，轮询分配任务
+- **实时状态推送** — SSE 实时推送任务状态，支持浏览器桌面通知
+- **Markdown 预览** — 内置渲染预览，支持源码切换、全文搜索高亮
+- **任务管理** — 批量重试 / 删除 / 转换 / 下载，CSV 导出
+- **配置预设** — 保存 / 加载常用配置，一键切换
+- **趋势图表** — Dashboard 展示 7 天趋势、文件类型分布
+- **移动端适配** — 响应式布局，侧边栏自动收起
 
 ## 快速启动
 
+### 方式一：Make（推荐）
+
 ```bash
-# 一键生产模式（自动构建前端 + 单进程运行）
+# 生产模式 — 自动构建前端 + 启动服务
 make prod
 ```
 
 访问 http://localhost:8900
 
-## 开发模式
-
-前后端分离运行，支持前端热更新（HMR）：
-
-```bash
-make dev
-```
-
-或分别启动：
-
-```bash
-# 后端
-cd backend && DEV_MODE=1 uvicorn main:app --host 0.0.0.0 --port 8900 --reload
-
-# 前端（另开终端）
-cd frontend && npm run dev
-```
-
-开发模式下前端访问 http://localhost:3001，API 请求自动代理到后端。
-
-## Docker 部署
+### 方式二：Docker
 
 ```bash
 docker compose up -d
 ```
 
-访问 http://localhost:8900。数据持久化在 Docker volume `data` 中。
+数据持久化在 Docker volume `data` 中。
 
-## 其他命令
+### 方式三：开发模式
 
 ```bash
-make build    # 仅构建前端
-make test     # 运行后端测试
-make clean    # 清理构建产物
+make dev
 ```
+
+前后端分离运行，支持热更新：
+- 前端：http://localhost:3001
+- 后端：http://localhost:8900/docs
+
+## 功能说明
+
+### Dashboard 概览
+
+- 任务统计卡片（总数 / 等待 / 处理中 / 完成 / 失败）
+- 成功率、平均耗时、磁盘占用
+- 近 7 天完成/失败趋势图
+- 文件类型分布饼图
+
+### 上传解析
+
+- 拖拽或点击上传，支持批量
+- 自动检测文档格式（Word/PPT/Excel），可选自动转 PDF
+- 上传进度实时显示（速度 + 预计剩余时间）
+- 配置预设快速切换
+
+### 任务管理
+
+- 任务列表支持搜索、状态筛选、排序
+- 点击任务行查看详情抽屉（时间线、MinerU 参数、错误堆栈）
+- 批量操作：重试 / 删除 / 转换 / 下载
+- 移动端自动切换为卡片布局
+
+### 预览与搜索
+
+- Markdown 渲染预览，代码块语法高亮
+- 源码 / 渲染模式切换
+- 全文搜索，匹配高亮 + 上下跳转
 
 ## 环境变量
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `DEV_MODE` | 无 | 设为 `1` 跳过静态文件服务，使用 Vite dev server |
-| `CORS_ORIGINS` | 无 | 允许的跨域来源（逗号分隔），生产模式下无需设置 |
+| `DEV_MODE` | — | 设为 `1` 跳过静态文件服务 |
+| `CORS_ORIGINS` | — | 允许的跨域来源（逗号分隔） |
 | `UPLOAD_DIR` | `./uploads` | 上传文件目录 |
 | `OUTPUT_DIR` | `./outputs` | 输出文件目录 |
 | `CONVERT_DIR` | `./converted` | 文档转换目录 |
@@ -92,59 +99,71 @@ make clean    # 清理构建产物
 mineru-batch/
 ├── backend/
 │   ├── main.py          # FastAPI 入口 + 前端静态服务
-│   ├── routes.py        # API 路由 (任务、日志、存储、统计)
-│   ├── models.py        # SQLAlchemy 模型 (FileTask, ProcessLog)
-│   └── requirements.txt
+│   ├── routes.py        # API 路由（上传、任务、日志、统计）
+│   ├── models.py        # SQLAlchemy 模型
+│   ├── requirements.txt
+│   └── tests/           # pytest 测试套件
 ├── frontend/
 │   ├── src/
-│   │   ├── views/       # 页面组件 (Dashboard, Upload, Tasks, Logs, Settings)
-│   │   ├── layout/      # 布局组件 (侧边栏 + 顶栏)
-│   │   ├── stores/      # 配置状态管理 (localStorage 持久化)
-│   │   ├── utils/       # 工具函数 (文件类型、错误翻译、格式化)
-│   │   └── api.ts       # Axios 封装 + SSE 连接
+│   │   ├── views/       # 页面组件
+│   │   ├── stores/      # 配置状态管理
+│   │   ├── utils/       # 工具函数
+│   │   └── api.ts       # API 封装
+│   ├── public/
 │   └── vite.config.ts
-├── uploads/             # 上传文件存储
-├── outputs/             # 解析结果输出
-├── converted/           # 文档转 PDF 中间文件
-├── Makefile
 ├── docker-compose.yml
-└── start.sh             # 开发环境一键启动脚本
+├── Dockerfile
+├── Makefile
+└── start.sh
 ```
 
-## API 文档
+## 技术栈
 
-启动后端后访问 http://localhost:8900/docs 查看 Swagger UI 交互式文档。
+| 层 | 技术 |
+|----|------|
+| 前端 | Vue 3 + TypeScript + Element Plus + ECharts |
+| 后端 | FastAPI + SQLAlchemy + SQLite |
+| 文档转换 | LibreOffice (headless) |
+| 部署 | Docker / Make / uvicorn |
 
-主要接口：
+## API 端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `POST` | `/api/upload` | 上传文件并创建任务 |
-| `GET` | `/api/tasks` | 任务列表 (支持分页、状态筛选、文件名搜索) |
-| `GET` | `/api/tasks/events` | SSE 任务状态推送流 |
+| `GET` | `/api/tasks` | 任务列表（分页、筛选） |
+| `GET` | `/api/tasks/{id}` | 任务详情 |
 | `POST` | `/api/tasks/{id}/retry` | 重试任务 |
 | `POST` | `/api/tasks/{id}/cancel` | 取消任务 |
-| `GET` | `/api/tasks/{id}/preview` | 预览解析结果 |
-| `GET` | `/api/tasks/{id}/download` | 下载解析结果 |
-| `GET` | `/api/stats` | 任务统计概览 |
-| `GET` | `/api/stats/trend` | 完成/失败趋势 |
+| `DELETE` | `/api/tasks/{id}` | 删除任务 |
+| `GET` | `/api/tasks/{id}/preview` | 预览结果 |
+| `GET` | `/api/tasks/{id}/download` | 下载结果 |
+| `GET` | `/api/stats` | 统计概览 |
+| `GET` | `/api/stats/trend` | 趋势数据 |
 | `GET` | `/api/stats/filetypes` | 文件类型分布 |
+| `GET` | `/api/logs` | 日志列表 |
+| `GET` | `/api/storage` | 存储占用 |
 
-## 技术栈
+完整 API 文档：http://localhost:8900/docs
 
-**后端**
-- FastAPI + Uvicorn
-- SQLAlchemy + SQLite (WAL 模式)
-- httpx (HTTP 客户端)
-- aiofiles (异步文件 I/O)
+## 开发
 
-**前端**
-- Vue 3.5 + TypeScript
-- Element Plus (UI 组件库)
-- ECharts (数据可视化)
-- Axios (HTTP 请求)
-- highlight.js (代码高亮)
-- marked + DOMPurify (Markdown 渲染)
+```bash
+# 安装后端依赖
+pip install -r backend/requirements.txt
+
+# 安装前端依赖
+cd frontend && npm install
+
+# 运行测试
+make test
+
+# 构建前端
+make build
+
+# 清理
+make clean
+```
 
 ## 许可证
 
