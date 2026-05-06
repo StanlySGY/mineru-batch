@@ -1,6 +1,34 @@
 # MinerU Batch
 
-批量 PDF 解析工具，基于 MinerU API。
+<p align="center">
+  <strong>批量 PDF / 文档解析工具</strong>
+  <br>
+  基于 MinerU API，支持多节点负载均衡、任务队列、实时进度推送
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/node-18+-green.svg" alt="Node.js 18+">
+  <img src="https://img.shields.io/badge/vue-3.5-brightgreen.svg" alt="Vue 3.5">
+  <img src="https://img.shields.io/badge/fastapi-0.110+-009688.svg" alt="FastAPI">
+  <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
+</p>
+
+---
+
+## 功能特性
+
+| 分类 | 功能 |
+|------|------|
+| **批量处理** | 多文件上传、任务队列、并发控制 (1-20)、自动重试 |
+| **文件支持** | PDF、图片 (PNG/JPG/BMP/TIFF/WebP)、Word、PPT、Excel |
+| **多节点** | MinerU 服务节点管理、轮询负载均衡、连接测试 |
+| **任务管理** | 状态筛选、文件名搜索、批量操作 (删除/重试/转换/下载) |
+| **结果预览** | Markdown 渲染、源码切换、全文搜索、代码高亮 |
+| **数据统计** | Dashboard 概览、7 天趋势图、文件类型分布、成功率/耗时 |
+| **配置管理** | 配置预设、导入/导出 JSON、一键恢复默认 |
+| **实时推送** | SSE 任务状态推送、浏览器桌面通知 |
+| **存储管理** | 磁盘占用统计、按目录清理 |
 
 ## 快速启动
 
@@ -61,22 +89,63 @@ make clean    # 清理构建产物
 ## 目录结构
 
 ```
-backend/
-  main.py        # FastAPI 入口 + 前端静态服务
-  routes.py      # API 路由
-  models.py      # SQLAlchemy 模型
-  tests/         # pytest 测试套件（45 tests）
-  requirements.txt
-
-frontend/
-  src/           # Vue 3 + TypeScript
-  public/        # 静态资源
-  vite.config.ts
+mineru-batch/
+├── backend/
+│   ├── main.py          # FastAPI 入口 + 前端静态服务
+│   ├── routes.py        # API 路由 (任务、日志、存储、统计)
+│   ├── models.py        # SQLAlchemy 模型 (FileTask, ProcessLog)
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── views/       # 页面组件 (Dashboard, Upload, Tasks, Logs, Settings)
+│   │   ├── layout/      # 布局组件 (侧边栏 + 顶栏)
+│   │   ├── stores/      # 配置状态管理 (localStorage 持久化)
+│   │   ├── utils/       # 工具函数 (文件类型、错误翻译、格式化)
+│   │   └── api.ts       # Axios 封装 + SSE 连接
+│   └── vite.config.ts
+├── uploads/             # 上传文件存储
+├── outputs/             # 解析结果输出
+├── converted/           # 文档转 PDF 中间文件
+├── Makefile
+├── docker-compose.yml
+└── start.sh             # 开发环境一键启动脚本
 ```
 
-## 依赖
+## API 文档
 
-- Python 3.10+
-- Node.js 18+
-- MinerU API 服务 (默认 localhost:8086)
-- VLLM/OpenAI 兼容服务 (默认 localhost:6002)
+启动后端后访问 http://localhost:8900/docs 查看 Swagger UI 交互式文档。
+
+主要接口：
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/upload` | 上传文件并创建任务 |
+| `GET` | `/api/tasks` | 任务列表 (支持分页、状态筛选、文件名搜索) |
+| `GET` | `/api/tasks/events` | SSE 任务状态推送流 |
+| `POST` | `/api/tasks/{id}/retry` | 重试任务 |
+| `POST` | `/api/tasks/{id}/cancel` | 取消任务 |
+| `GET` | `/api/tasks/{id}/preview` | 预览解析结果 |
+| `GET` | `/api/tasks/{id}/download` | 下载解析结果 |
+| `GET` | `/api/stats` | 任务统计概览 |
+| `GET` | `/api/stats/trend` | 完成/失败趋势 |
+| `GET` | `/api/stats/filetypes` | 文件类型分布 |
+
+## 技术栈
+
+**后端**
+- FastAPI + Uvicorn
+- SQLAlchemy + SQLite (WAL 模式)
+- httpx (HTTP 客户端)
+- aiofiles (异步文件 I/O)
+
+**前端**
+- Vue 3.5 + TypeScript
+- Element Plus (UI 组件库)
+- ECharts (数据可视化)
+- Axios (HTTP 请求)
+- highlight.js (代码高亮)
+- marked + DOMPurify (Markdown 渲染)
+
+## 许可证
+
+MIT
