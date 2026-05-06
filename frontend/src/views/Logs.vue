@@ -206,7 +206,16 @@ onUnmounted(() => {
   </div>
 
   <div class="pagination-row" v-if="total > size">
-    <el-pagination background layout="prev, pager, next" :total="total" :page-size="size" :current-page="page" @current-change="handlePageChange" />
+    <el-pagination
+      background
+      layout="total, sizes, prev, pager, next, jumper"
+      :total="total"
+      :page-sizes="[20, 50, 100]"
+      :page-size="size"
+      :current-page="page"
+      @current-change="handlePageChange"
+      @size-change="(s: number) => { size = s; page = 1; loadLogs() }"
+    />
   </div>
 </el-card>
 </template>

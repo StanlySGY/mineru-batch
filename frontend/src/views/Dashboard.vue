@@ -5,11 +5,11 @@ import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { formatTime, statusTag } from '../utils/format'
 import * as echarts from 'echarts/core'
-import { BarChart } from 'echarts/charts'
+import { BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
-echarts.use([BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, avg_duration_ms: 0 })
@@ -21,6 +21,8 @@ let sseClose: (() => void) | null = null
 
 const chartRef = shallowRef<echarts.ECharts | null>(null)
 const chartEl = ref<HTMLElement | null>(null)
+const pieRef = shallowRef<echarts.ECharts | null>(null)
+const pieEl = ref<HTMLElement | null>(null)
 
 const cards = [
   { key: 'total', label: '总任务', icon: Files, color: '#fff', bg: 'linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%)', route: '/tasks' },
@@ -95,6 +97,31 @@ async function loadTrend() {
   } catch {}
 }
 
+async function loadFiletypes() {
+  try {
+    const data = await api.getStatsFiletypes()
+    if (!data.length) return
+    if (!pieRef.value) {
+      pieRef.value = echarts.init(pieEl.value!)
+    }
+    pieRef.value.setOption({
+      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      legend: { orient: 'vertical', right: 0, top: 'center', textStyle: { fontSize: 11 } },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '70%'],
+        center: ['40%', '50%'],
+        avoidLabelOverlap: false,
+        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+        label: { show: false },
+        emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
+        labelLine: { show: false },
+        data: data.map(d => ({ name: d.type, value: d.count })),
+      }],
+    })
+  } catch {}
+}
+
 function handleCardClick(route: string) {
   if (route.includes('?')) {
     const [path, query] = route.split('?')
@@ -110,14 +137,14 @@ const statusLabel: Record<string, string> = {
 }
 
 let sseDebounce: ReturnType<typeof setTimeout> | null = null
-const resizeHandler = () => chartRef.value?.resize()
+const resizeHandler = () => { chartRef.value?.resize(); pieRef.value?.resize() }
 
 onMounted(() => {
-  loadStats().then(loadTrend)
+  loadStats().then(() => { loadTrend(); loadFiletypes() })
   sseClose = api.onTaskEvent((evt) => {
     if (evt.type === 'task_update') {
       if (sseDebounce) clearTimeout(sseDebounce)
-      sseDebounce = setTimeout(() => { loadStats(); loadTrend() }, 500)
+      sseDebounce = setTimeout(() => { loadStats(); loadTrend(); loadFiletypes() }, 500)
     }
   })
   window.addEventListener('resize', resizeHandler)
@@ -126,6 +153,7 @@ onUnmounted(() => {
   if (sseDebounce) clearTimeout(sseDebounce)
   if (sseClose) sseClose()
   chartRef.value?.dispose()
+  pieRef.value?.dispose()
   window.removeEventListener('resize', resizeHandler)
 })
 </script>
@@ -224,6 +252,12 @@ onUnmounted(() => {
         </template>
         <div ref="chartEl" class="trend-chart"></div>
       </el-card>
+      <el-card shadow="never" class="pie-card">
+        <template #header>
+          <span class="card-title">文件类型分布</span>
+        </template>
+        <div ref="pieEl" class="pie-chart"></div>
+      </el-card>
       <el-card shadow="never" class="quick-card">
         <template #header>
           <span class="card-title">快捷操作</span>
@@ -279,6 +313,8 @@ onUnmounted(() => {
 .recent-card { border-radius: 12px; flex: 1; }
 .trend-card { border-radius: 12px; }
 .trend-chart { height: 200px; }
+.pie-card { border-radius: 12px; }
+.pie-chart { height: 200px; }
 .quick-card { border-radius: 12px; }
 .quick-actions { display: flex; flex-direction: column; gap: 12px; }
 .quick-btn { width: 100%; }

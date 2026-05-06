@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy } from '@element-plus/icons-vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
@@ -37,24 +37,6 @@ function ensureHljs() {
 }
 
 marked.setOptions({ breaks: true, gfm: true })
-
-const renderedPreview = ref('')
-
-watch([previewContent, previewFormat, previewMode], () => {
-  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') {
-    renderedPreview.value = ''
-    return
-  }
-  ensureHljs()
-  const raw = marked.parse(previewContent.value) as string
-  const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre'], ADD_ATTR: ['class'] })
-  const el = document.createElement('div')
-  el.innerHTML = clean
-  el.querySelectorAll('pre code').forEach(block => {
-    hljs.highlightElement(block as HTMLElement)
-  })
-  renderedPreview.value = el.innerHTML
-})
 
 const tasks = ref<TaskItem[]>([])
 const total = ref(0)
@@ -106,6 +88,80 @@ const previewFilename = ref('')
 const previewFormat = ref('md')
 const previewTaskId = ref(0)
 const previewMode = ref<'render' | 'source'>('render')
+const previewSearch = ref('')
+const previewSearchMatches = ref(0)
+const previewSearchIdx = ref(0)
+
+function highlightSearch(text: string, query: string): string {
+  if (!query) return text
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${escaped})`, 'gi')
+  let idx = 0
+  return text.replace(regex, () => {
+    idx++
+    return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+  })
+}
+
+const renderedPreview = computed(() => {
+  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') return ''
+  ensureHljs()
+  const raw = marked.parse(previewContent.value) as string
+  const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre', 'mark'], ADD_ATTR: ['class'] })
+  const el = document.createElement('div')
+  el.innerHTML = clean
+  el.querySelectorAll('pre code').forEach(block => {
+    hljs.highlightElement(block as HTMLElement)
+  })
+  let html = el.innerHTML
+  if (previewSearch.value) {
+    const escaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const regex = new RegExp(`(${escaped})`, 'gi')
+    const matches = html.match(regex)
+    previewSearchMatches.value = matches ? matches.length : 0
+    if (previewSearchMatches.value > 0) {
+      let idx = 0
+      html = html.replace(regex, () => {
+        idx++
+        return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+      })
+    }
+  } else {
+    previewSearchMatches.value = 0
+    previewSearchIdx.value = 0
+  }
+  return html
+})
+
+const sourcePreviewHighlighted = computed(() => {
+  if (!previewContent.value) return ''
+  if (!previewSearch.value) return escapeHtml(previewContent.value)
+  const escaped = escapeHtml(previewContent.value)
+  const searchEscaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${searchEscaped})`, 'gi')
+  const matches = escaped.match(regex)
+  previewSearchMatches.value = matches ? matches.length : 0
+  let idx = 0
+  return escaped.replace(regex, () => {
+    idx++
+    return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+  })
+})
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function previewSearchNext() {
+  if (!previewSearchMatches.value) return
+  previewSearchIdx.value = previewSearchIdx.value >= previewSearchMatches.value ? 1 : previewSearchIdx.value + 1
+}
+function previewSearchPrev() {
+  if (!previewSearchMatches.value) return
+  previewSearchIdx.value = previewSearchIdx.value <= 1 ? previewSearchMatches.value : previewSearchIdx.value - 1
+}
+
+watch(previewSearch, () => { previewSearchIdx.value = previewSearchMatches.value ? 1 : 0 })
 
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
@@ -532,14 +588,22 @@ function checkMobile() {
 
 <el-dialog v-model="previewVisible" :title="`预览 - ${previewFilename}`" width="75%" top="5vh" destroy-on-close>
   <div v-loading="previewLoading" class="preview-container">
-    <div v-if="previewContent && previewFormat === 'md'" class="preview-toolbar">
-      <el-radio-group v-model="previewMode" size="small">
+    <div class="preview-toolbar">
+      <el-radio-group v-if="previewFormat === 'md'" v-model="previewMode" size="small">
         <el-radio-button value="render">渲染</el-radio-button>
         <el-radio-button value="source">源码</el-radio-button>
       </el-radio-group>
+      <div class="preview-search">
+        <el-input v-model="previewSearch" placeholder="搜索内容" clearable size="small" style="width:180px" :prefix-icon="Search" />
+        <template v-if="previewSearch">
+          <span class="search-count">{{ previewSearchMatches ? `${previewSearchIdx}/${previewSearchMatches}` : '无匹配' }}</span>
+          <el-button size="small" :icon="ArrowUp" circle @click="previewSearchPrev" :disabled="!previewSearchMatches" />
+          <el-button size="small" :icon="ArrowDown" circle @click="previewSearchNext" :disabled="!previewSearchMatches" />
+        </template>
+      </div>
     </div>
     <div v-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
-    <pre v-else-if="previewContent" class="text-preview">{{ previewContent }}</pre>
+    <pre v-else-if="previewContent" class="text-preview" v-html="sourcePreviewHighlighted" />
   </div>
   <template #footer>
     <el-button @click="previewVisible = false">关闭</el-button>
@@ -613,7 +677,11 @@ function checkMobile() {
 .card-title { font-weight: 600; }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
-.preview-toolbar { margin-bottom: 12px; display: flex; justify-content: flex-end; }
+.preview-toolbar { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.preview-search { display: flex; align-items: center; gap: 6px; }
+.search-count { font-size: 12px; color: #909399; white-space: nowrap; }
+:deep(.search-highlight) { background: #ffe58f; padding: 1px 2px; border-radius: 2px; }
+:deep(.search-highlight.active) { background: #ffc53d; box-shadow: 0 0 0 2px #faad14; }
 .md-preview { line-height: 1.8; color: #303133; }
 .md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 16px; }
 .md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 14px; }

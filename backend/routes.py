@@ -927,3 +927,13 @@ async def get_stats_trend(days: int = Query(7, ge=1, le=30), db: Session = Depen
         ORDER BY d
     """), {"days": days}).fetchall()
     return [{"date": r[0], "completed": r[1], "failed": r[2]} for r in rows]
+
+
+@router.get("/stats/filetypes")
+async def get_filetype_stats(db: Session = Depends(get_db)):
+    tasks = db.query(FileTask.original_filename).all()
+    ext_count: dict[str, int] = {}
+    for (filename,) in tasks:
+        ext = os.path.splitext(filename)[1].lower() or '.unknown'
+        ext_count[ext] = ext_count.get(ext, 0) + 1
+    return [{"type": ext, "count": cnt} for ext, cnt in sorted(ext_count.items(), key=lambda x: -x[1])]

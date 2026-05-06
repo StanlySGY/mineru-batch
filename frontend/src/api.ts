@@ -274,6 +274,11 @@ export const api = {
     return data as { date: string; completed: number; failed: number }[]
   },
 
+  async getStatsFiletypes() {
+    const { data } = await http.get('/stats/filetypes')
+    return data as { type: string; count: number }[]
+  },
+
   onTaskEvent(
     callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void,
     onStatusChange?: (connected: boolean) => void,
