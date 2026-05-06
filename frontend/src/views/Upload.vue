@@ -43,6 +43,52 @@ function clearAllFiles() {
   fileList.value = []
 }
 
+async function readEntry(entry: any, path: string): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file((file: File) => {
+        Object.defineProperty(file, 'webkitRelativePath', { value: path + file.name })
+        resolve([file])
+      })
+    })
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader()
+    const entries = await new Promise<any[]>((resolve) => reader.readEntries(resolve))
+    const files: File[] = []
+    for (const e of entries) {
+      const sub = await readEntry(e, path + entry.name + '/')
+      files.push(...sub)
+    }
+    return files
+  }
+  return []
+}
+
+async function handleDrop(e: DragEvent) {
+  const items = e.dataTransfer?.items
+  if (!items) return
+  const droppedFiles: File[] = []
+  for (const item of Array.from(items)) {
+    const entry = (item as any).webkitGetAsEntry?.()
+    if (entry) {
+      const files = await readEntry(entry, '')
+      droppedFiles.push(...files)
+    }
+  }
+  if (!droppedFiles.length) return
+  const allowed = droppedFiles.filter(f => {
+    const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+    return ALLOWED_EXTENSIONS.includes(ext)
+  })
+  if (!allowed.length) return ElMessage.warning('没有可识别的文件')
+  if (fileList.value.length + allowed.length > 200) return ElMessage.warning('最多 200 个文件')
+  for (const f of allowed) {
+    fileList.value.push({ name: f.webkitRelativePath || f.name, raw: f } as any)
+  }
+  ElMessage.success(`已添加 ${allowed.length} 个文件`)
+}
+
 const handleExceed: UploadProps['onExceed'] = () => {
   ElMessage.warning('最多上传 50 个文件')
 }
@@ -134,23 +180,25 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <el-upload
-        v-model:file-list="fileList"
-        multiple
-        :auto-upload="false"
-        :limit="50"
-        :accept="ALLOWED_EXTENSIONS"
-        :on-exceed="handleExceed"
-        :before-upload="beforeUpload"
-        drag
-        class="upload-dragger"
-      >
-        <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
-        <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择</em></div>
-        <template #tip>
-          <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB</div>
-        </template>
-      </el-upload>
+      <div class="upload-drop-zone" @drop.prevent="handleDrop" @dragover.prevent>
+        <el-upload
+          v-model:file-list="fileList"
+          multiple
+          :auto-upload="false"
+          :limit="50"
+          :accept="ALLOWED_EXTENSIONS"
+          :on-exceed="handleExceed"
+          :before-upload="beforeUpload"
+          drag
+          class="upload-dragger"
+        >
+          <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
+          <div class="el-upload__text">拖拽文件或文件夹到此处，或 <em>点击选择</em></div>
+          <template #tip>
+            <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB，可直接拖拽文件夹</div>
+          </template>
+        </el-upload>
+      </div>
 
       <div class="folder-upload-hint">
         <el-upload
@@ -298,6 +346,12 @@ onUnmounted(() => {
 .config-form { display: flex; flex-direction: column; gap: 2px; }
 .submit-btn { width: 100%; margin-top: 8px; }
 .upload-dragger :deep(.el-upload-dragger) { padding: 40px 0; border-radius: 8px; }
+.upload-drop-zone { position: relative; }
+.upload-drop-zone::after {
+  content: ''; position: absolute; inset: 0; border-radius: 8px;
+  border: 2px dashed transparent; transition: border-color 0.2s; pointer-events: none;
+}
+.upload-drop-zone:hover::after { border-color: #409eff; }
 .card-header-row { display: flex; align-items: center; gap: 10px; }
 .card-title { font-weight: 600; }
 
