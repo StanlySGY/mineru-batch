@@ -100,6 +100,7 @@ export interface UploadOptions {
   outputFormat: string
   timeout: number
   autoConvert: boolean
+  webhookUrl?: string
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -110,11 +111,30 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === 'granted'
 }
 
+let notificationBuffer: { filename: string; status: string }[] = []
+let notificationTimer: ReturnType<typeof setTimeout> | null = null
+
 export function notifyTaskComplete(filename: string, status: string) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return
-  const title = status === 'completed' ? '任务完成' : '任务失败'
-  const body = status === 'completed' ? `${filename} 解析完成` : `${filename} 解析失败`
-  new Notification(title, { body })
+  notificationBuffer.push({ filename, status })
+  if (notificationTimer) clearTimeout(notificationTimer)
+  notificationTimer = setTimeout(() => {
+    if (notificationBuffer.length === 0) return
+    if (notificationBuffer.length === 1) {
+      const item = notificationBuffer[0]
+      const title = item.status === 'completed' ? '任务完成' : '任务失败'
+      const body = item.status === 'completed' ? `${item.filename} 解析完成` : `${item.filename} 解析失败`
+      new Notification(title, { body })
+    } else {
+      const completed = notificationBuffer.filter(n => n.status === 'completed').length
+      const failed = notificationBuffer.filter(n => n.status === 'failed').length
+      new Notification('批量任务完成', {
+        body: `共 ${notificationBuffer.length} 个任务：成功 ${completed}，失败 ${failed}`,
+      })
+    }
+    notificationBuffer = []
+    notificationTimer = null
+  }, 2000)
 }
 
 export const api = {

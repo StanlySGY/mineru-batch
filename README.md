@@ -9,9 +9,40 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688.svg)](https://fastapi.tiangolo.com)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
+[English](./README_en.md) | 中文
+
 </div>
 
 ---
+
+## 架构概览
+
+```mermaid
+graph TB
+    User[用户浏览器] -->|上传文件| LB[MinerU Batch 调度器]
+    LB -->|轮询分配| N1[MinerU 节点 1]
+    LB -->|轮询分配| N2[MinerU 节点 2]
+    LB -->|轮询分配| N3[MinerU 节点 3]
+    N1 -->|解析结果| LB
+    N2 -->|解析结果| LB
+    N3 -->|解析结果| LB
+    LB -->|SSE 推送| User
+    LB -->|存储| DB[(SQLite)]
+    LB -->|文件| FS[文件系统]
+    LB -->|Webhook| EXT[外部服务]
+    
+    subgraph MinerU Batch
+        LB
+        DB
+        FS
+    end
+```
+
+**核心能力：**
+- 多节点负载均衡（Round-Robin）
+- 异步任务队列（并发可控）
+- ZIP 流自动解压（Bundle 产物保留）
+- Webhook 自动推送（闭环流水线）
 
 ## 功能特性
 
@@ -151,6 +182,56 @@ mineru-batch/
 | `POST` | `/api/storage/clean-sources` | 清理已完成任务原文件 |
 
 完整 API 文档：http://localhost:8900/docs
+
+## RAG 知识库最佳实践
+
+MinerU Batch 的核心价值是为大模型知识库提供高质量语料。以下是典型工作流：
+
+### 场景：批量处理技术文档入库
+
+```bash
+# 1. 准备文档目录
+mkdir -p ~/rag-source-docs
+# 将 PDF/Word/PPT 放入目录
+
+# 2. 启动 MinerU Batch
+make prod
+
+# 3. 在设置页配置 MinerU 节点
+# 填入你的 MinerU API 地址
+
+# 4. 拖拽整个文件夹到上传区域
+# 系统自动保留目录结构
+
+# 5. 等待解析完成，下载 Bundle
+# Bundle 包含: output.md + images/ + content_list.json
+```
+
+### 配置推荐
+
+| 场景 | parse_method | formula_enable | table_enable | return_images |
+|------|--------------|----------------|--------------|---------------|
+| 技术文档 | auto | true | true | true |
+| 学术论文 | auto | true | true | true |
+| 纯文本报告 | txt | false | false | false |
+| 扫描件 OCR | ocr | true | true | true |
+
+### Webhook 自动推送
+
+配置 Webhook URL 后，任务完成时自动推送结果：
+
+```json
+{
+  "task_id": 42,
+  "filename": "paper.pdf",
+  "status": "completed",
+  "output_format": "md",
+  "content": "...解析后的Markdown内容...",
+  "images": ["img1.png", "img2.png"]
+}
+```
+
+适用于：Dify、FastGPT、LangChain 等 RAG 框架的数据导入。
 
 ## 开发
 

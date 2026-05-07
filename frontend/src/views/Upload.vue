@@ -185,7 +185,7 @@ onUnmounted(() => {
           v-model:file-list="fileList"
           multiple
           :auto-upload="false"
-          :limit="50"
+          :limit="200"
           :accept="ALLOWED_EXTENSIONS"
           :on-exceed="handleExceed"
           :before-upload="beforeUpload"

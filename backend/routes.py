@@ -35,7 +35,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(CONVERT_DIR, exist_ok=True)
 
 DOC_EXTENSIONS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
-_lo_lock = threading.Lock()
+_lo_semaphore = asyncio.Semaphore(2)
 _rr_counter = 0
 _rr_lock = threading.Lock()
 _task_semaphore = asyncio.Semaphore(5)
@@ -75,6 +75,28 @@ def _notify_task_change(task_id: int, status: str, **extra):
     _emit_event("task_update", task_id, {"status": status, **extra})
 
 
+async def _send_webhook(task: FileTask, content: str = None):
+    if not task.webhook_url:
+        return
+    try:
+        payload = {
+            "task_id": task.id,
+            "filename": task.original_filename,
+            "status": task.status.value,
+            "output_format": task.output_format.value if task.output_format else None,
+            "error_message": task.error_message,
+        }
+        if content:
+            payload["content"] = content[:50000]
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(task.webhook_url, json=payload)
+            add_log(f"Webhook 推送: HTTP {resp.status_code}", task_id=task.id,
+                    level="info" if resp.status_code < 400 else "warn",
+                    detail=f"url={task.webhook_url}\nstatus={resp.status_code}")
+    except Exception as e:
+        add_log(f"Webhook 推送失败: {e}", task_id=task.id, level="warn")
+
+
 def _pick_endpoint(endpoints: list[dict]) -> dict:
     global _rr_counter
     enabled = [e for e in endpoints if e.get("enabled", True)]
@@ -105,7 +127,7 @@ def _is_doc_file(filename: str) -> bool:
     return os.path.splitext(filename)[1].lower() in DOC_EXTENSIONS
 
 
-def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
+async def _convert_to_pdf(input_path: str, task_id: int) -> str:
     out_dir = CONVERT_DIR
     profile_dir = os.path.join(CONVERT_DIR, f".lo_profile_{uuid.uuid4().hex[:8]}")
     os.makedirs(profile_dir, exist_ok=True)
@@ -117,9 +139,11 @@ def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
     add_log(f"LibreOffice 转换开始", task_id=task_id,
             detail=f"cmd={' '.join(cmd)}\ninput={os.path.basename(input_path)}")
     try:
-        with _lo_lock:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
-                                    env={**os.environ, "HOME": "/tmp"})
+        async with _lo_semaphore:
+            result = await asyncio.to_thread(
+                subprocess.run, cmd, capture_output=True, text=True, timeout=120,
+                env={**os.environ, "HOME": "/tmp"}
+            )
             if result.returncode != 0:
                 raise RuntimeError(f"LibreOffice exit {result.returncode}: {result.stderr[:500] or result.stdout[:500]}")
             base = os.path.splitext(os.path.basename(input_path))[0]
@@ -276,7 +300,7 @@ def _process_task_sync(task_id: int):
             else:
                 add_log(f"检测到文档格式，先转换为 PDF", task_id=task_id)
                 try:
-                    pdf_path = _convert_to_pdf_sync(task.file_path, task_id)
+                    pdf_path = await _convert_to_pdf(task.file_path, task_id)
                     task.pdf_path = pdf_path
                     file_to_parse = pdf_path
                     db.commit()
@@ -372,6 +396,7 @@ def _process_task_sync(task_id: int):
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
         _notify_task_change(task_id, "completed")
+        await _send_webhook(task, md_content[:50000])
     except Exception as e:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
         if task:
@@ -381,6 +406,7 @@ def _process_task_sync(task_id: int):
             db.commit()
             add_log(f"任务失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
             _notify_task_change(task_id, "failed", error_message=str(e))
+            await _send_webhook(task)
     finally:
         with _cancel_lock:
             _cancelled_tasks.discard(task_id)
@@ -504,6 +530,7 @@ async def upload_files(
     timeout: str = Form("600"),
     auto_convert: str = Form("true"),
     relative_paths: str = Form(None),
+    webhook_url: str = Form(None),
     db: Session = Depends(get_db),
 ):
     if output_format not in ("md", "txt", "html"):
@@ -581,6 +608,7 @@ async def upload_files(
             timeout=_timeout,
             auto_convert_doc=_b(auto_convert),
             api_key=ep.get("apiKey") if ep else None,
+            webhook_url=webhook_url,
         )
         db.add(task)
         db.commit()
@@ -613,7 +641,7 @@ async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db)):
         return {"detail": "already converted", "pdf_path": task.pdf_path}
 
     try:
-        pdf_path = await asyncio.to_thread(_convert_to_pdf_sync, task.file_path, task_id)
+                pdf_path = await _convert_to_pdf(task.file_path, task_id)
         task.pdf_path = pdf_path
         task.auto_convert_doc = True
         db.commit()
@@ -688,7 +716,7 @@ async def batch_convert_tasks(ids: str = Query(..., description="comma-separated
     for task in tasks:
         if _is_doc_file(task.original_filename) and not task.pdf_path:
             try:
-                pdf_path = await asyncio.to_thread(_convert_to_pdf_sync, task.file_path, task.id)
+                pdf_path = await _convert_to_pdf(task.file_path, task.id)
                 task.pdf_path = pdf_path
                 task.auto_convert_doc = True
                 db.commit()

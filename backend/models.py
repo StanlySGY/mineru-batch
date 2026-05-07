@@ -57,6 +57,7 @@ class FileTask(Base):
     start_page_id = Column(Integer, default=0)
     end_page_id = Column(Integer, default=99999)
     api_key = Column(String(256), nullable=True)
+    webhook_url = Column(String(1024), nullable=True)
     # output
     output_format = Column(Enum(OutputFormat), default=OutputFormat.MD)
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, index=True)
@@ -93,6 +94,7 @@ class FileTask(Base):
             "replace_image_url": self.replace_image_url,
             "start_page_id": self.start_page_id,
             "end_page_id": self.end_page_id,
+            "webhook_url": self.webhook_url,
             "status": self.status.value if self.status else None,
             "output_format": self.output_format.value if self.output_format else None,
             "error_message": self.error_message,
