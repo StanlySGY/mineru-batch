@@ -15,7 +15,25 @@
 
 ---
 
-## 架构概览
+## 界面预览
+
+<!-- 请将截图放在 docs/ 目录下 -->
+<div align="center">
+<img src="docs/dashboard.png" width="80%" alt="Dashboard 概览" />
+<p><em>Dashboard：任务统计、趋势图表、文件类型分布</em></p>
+</div>
+
+<div align="center">
+<img src="docs/upload.png" width="80%" alt="上传解析" />
+<p><em>上传解析：拖拽文件夹、分批并发上传、实时进度</em></p>
+</div>
+
+<div align="center">
+<img src="docs/preview.png" width="80%" alt="Markdown 预览" />
+<p><em>Markdown 预览：渲染/源码切换、全文搜索高亮</em></p>
+</div>
+
+## 功能特性
 
 ```mermaid
 graph TB
@@ -251,6 +269,45 @@ make build
 # 清理
 make clean
 ```
+
+## 硬件与依赖说明
+
+> **MinerU Batch 本身是轻量级调度平台**（占用不到 200MB 内存），重负载发生在你配置的 MinerU API 节点上。因此可以轻松部署在树莓派或 1核2G 的轻量云服务器上。
+
+- **Docker 部署**：已内置 LibreOffice，无需额外安装
+- **make prod 部署**：需在宿主机安装 LibreOffice（`apt install libreoffice`）
+
+## 常见问题 (FAQ)
+
+**Q: 上传大文件提示 413 Request Entity Too Large？**
+
+A: 如果使用了 Nginx 反向代理，需修改配置：
+```nginx
+client_max_body_size 500m;
+```
+
+**Q: DOCX 自动转 PDF 失败？**
+
+A: 检查系统中是否安装了 LibreOffice：
+```bash
+# Ubuntu/Debian
+sudo apt install libreoffice
+
+# CentOS/RHEL
+sudo yum install libreoffice
+```
+
+**Q: 如何配置多个 MinerU 节点实现负载均衡？**
+
+A: 在"系统设置"页面添加多个节点，系统会自动轮询分配任务。
+
+**Q: 上传进度卡在某个百分比不动？**
+
+A: 可能是网络波动导致，系统会自动重试。如果持续不动，可刷新页面重新上传。
+
+**Q: 如何为 RAG 知识库批量处理文档？**
+
+A: 参考上方"RAG 知识库最佳实践"章节，推荐配置 `return_images: true` 以保留图片。
 
 ## 许可证
 

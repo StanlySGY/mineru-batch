@@ -15,7 +15,25 @@ English | [中文](./README.md)
 
 ---
 
-## Architecture
+## Screenshots
+
+<!-- Place screenshots in docs/ directory -->
+<div align="center">
+<img src="docs/dashboard.png" width="80%" alt="Dashboard Overview" />
+<p><em>Dashboard: Task statistics, trend charts, file type distribution</em></p>
+</div>
+
+<div align="center">
+<img src="docs/upload.png" width="80%" alt="Upload & Parse" />
+<p><em>Upload: Drag & drop folders, batch concurrent upload, real-time progress</em></p>
+</div>
+
+<div align="center">
+<img src="docs/preview.png" width="80%" alt="Markdown Preview" />
+<p><em>Markdown Preview: Render/source toggle, full-text search highlighting</em></p>
+</div>
+
+## Features
 
 ```mermaid
 graph TB

@@ -172,7 +172,13 @@ function previewSearchPrev() {
   previewSearchIdx.value = previewSearchIdx.value <= 1 ? previewSearchMatches.value : previewSearchIdx.value - 1
 }
 
-watch(previewSearch, () => { previewSearchIdx.value = previewSearchMatches.value ? 1 : 0 })
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(previewSearch, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    previewSearchIdx.value = previewSearchMatches.value ? 1 : 0
+  }, 300)
+})
 
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
@@ -520,8 +526,8 @@ function checkMobile() {
     <span class="summary-spacer" />
     <el-button size="small" text @click="selectAllCurrent">全选当前页</el-button>
   </div>
-  <el-table v-if="!isMobile" ref="tableRef" :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
-    <el-table-column type="selection" width="40" />
+  <el-table v-if="!isMobile" ref="tableRef" :data="tasks" row-key="id" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
+    <el-table-column type="selection" width="40" reserve-selection />
     <el-table-column prop="id" label="ID" width="60" sortable />
     <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>
       <template #default="{ row }">

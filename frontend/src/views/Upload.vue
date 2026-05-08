@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue'
-import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
+import { UploadFilled, Document, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import type { UploadProgress } from '../api'
@@ -109,52 +109,80 @@ async function handleUpload() {
   uploadSpeed.value = ''
   uploadEta.value = ''
   abortController.value = new AbortController()
+
+  const opts = {
+    backend: cfg.backend.value,
+    mineruApi: cfg.mineruApi.value,
+    serverUrl: cfg.serverUrl.value,
+    endpoints: cfg.mineruEndpoints.value.filter(e => e.enabled).length > 0
+      ? JSON.stringify(cfg.mineruEndpoints.value.filter(e => e.enabled))
+      : undefined,
+    parseMethod: cfg.parseMethod.value,
+    langList: cfg.langList.value,
+    formulaEnable: cfg.formulaEnable.value,
+    tableEnable: cfg.tableEnable.value,
+    returnMd: cfg.returnMd.value,
+    returnMiddleJson: cfg.returnMiddleJson.value,
+    returnModelOutput: cfg.returnModelOutput.value,
+    returnContentList: cfg.returnContentList.value,
+    returnImages: cfg.returnImages.value,
+    responseFormatZip: cfg.responseFormatZip.value,
+    replaceImageUrl: cfg.replaceImageUrl.value,
+    startPageId: cfg.startPageId.value,
+    endPageId: cfg.endPageId.value,
+    outputFormat: cfg.outputFormat.value,
+    timeout: cfg.timeout.value,
+    autoConvert: cfg.autoConvert.value,
+    webhookUrl: cfg.webhookUrl?.value || undefined,
+  }
+
+  const MAX_CONCURRENT = 3
+  const queue = [...rawFiles]
+  const totalFiles = queue.length
+  let completed = 0
+  let failed = 0
+  const allTasks: any[] = []
+
+  async function uploadOne(file: File): Promise<void> {
+    try {
+      const res = await api.upload([file], opts, undefined, abortController.value?.signal)
+      allTasks.push(...res.tasks)
+      completed++
+    } catch (e: any) {
+      if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') throw e
+      failed++
+      completed++
+      ElMessage.error(`"${file.name}" 上传失败: ${e?.response?.data?.detail || e?.message || '未知错误'}`)
+    }
+    uploadProgress.value = Math.round((completed / totalFiles) * 100)
+  }
+
   try {
-    const enabledEndpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
-    const endpointsStr = enabledEndpoints.length > 0 ? JSON.stringify(enabledEndpoints) : undefined
-    const res = await api.upload(rawFiles, {
-      backend: cfg.backend.value,
-      mineruApi: cfg.mineruApi.value,
-      serverUrl: cfg.serverUrl.value,
-      endpoints: endpointsStr,
-      parseMethod: cfg.parseMethod.value,
-      langList: cfg.langList.value,
-      formulaEnable: cfg.formulaEnable.value,
-      tableEnable: cfg.tableEnable.value,
-      returnMd: cfg.returnMd.value,
-      returnMiddleJson: cfg.returnMiddleJson.value,
-      returnModelOutput: cfg.returnModelOutput.value,
-      returnContentList: cfg.returnContentList.value,
-      returnImages: cfg.returnImages.value,
-      responseFormatZip: cfg.responseFormatZip.value,
-      replaceImageUrl: cfg.replaceImageUrl.value,
-      startPageId: cfg.startPageId.value,
-      endPageId: cfg.endPageId.value,
-      outputFormat: cfg.outputFormat.value,
-      timeout: cfg.timeout.value,
-      autoConvert: cfg.autoConvert.value,
-    }, (p: UploadProgress) => {
-      uploadProgress.value = p.pct
-      uploadSpeed.value = p.speed > 1024 * 1024 ? `${(p.speed / 1024 / 1024).toFixed(1)} MB/s` : `${(p.speed / 1024).toFixed(0)} KB/s`
-      uploadEta.value = p.eta > 60 ? `约 ${Math.ceil(p.eta / 60)} 分钟` : p.eta > 0 ? `约 ${Math.ceil(p.eta)} 秒` : ''
-    }, abortController.value.signal)
-    ElMessage.success(`已提交 ${res.tasks.length} 个解析任务`)
-    requestNotificationPermission()
-    fileList.value = []
-    router.push('/tasks')
+    const workers: Promise<void>[] = []
+    for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) {
+      workers.push((async () => {
+        while (queue.length) {
+          const file = queue.shift()
+          if (!file) break
+          if (abortController.value?.signal.aborted) break
+          await uploadOne(file)
+        }
+      })())
+    }
+    await Promise.all(workers)
+
+    if (completed > 0) {
+      const msg = failed > 0
+        ? `完成 ${completed} 个，失败 ${failed} 个`
+        : `已提交 ${allTasks.length} 个解析任务`
+      ElMessage.success(msg)
+      requestNotificationPermission()
+      fileList.value = []
+      router.push('/tasks')
+    }
   } catch (e: any) {
     if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {
       ElMessage.info('上传已取消')
-    } else {
-    const detail = e?.response?.data
-    if (detail?.detail) {
-      const msgs = Array.isArray(detail.detail)
-        ? detail.detail.map((d: any) => `${d.loc?.join('.') || ''}: ${d.msg}`).join('; ')
-        : JSON.stringify(detail.detail)
-      ElMessage.error(`参数错误: ${msgs}`)
-    } else {
-      ElMessage.error(e?.response?.data?.detail || e?.message || '上传失败')
-    }
     }
   } finally {
     uploading.value = false
@@ -255,7 +283,13 @@ onUnmounted(() => {
       </template>
 
       <el-form label-position="top" class="config-form">
-        <el-form-item label="后端类型 (backend)">
+        <el-form-item>
+          <template #label>
+            后端类型 (backend)
+            <el-tooltip content="hybrid: 纯文本偏多时更快；vlm: 含大量图片和复杂版式时效果更好" placement="top">
+              <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-select v-model="cfg.backend.value">
             <el-option value="hybrid-http-client" label="hybrid-http-client" />
             <el-option value="vlm-http-client" label="vlm-http-client" />
@@ -270,7 +304,13 @@ onUnmounted(() => {
           <el-input v-model="cfg.serverUrl.value" />
         </el-form-item>
 
-        <el-form-item label="解析方式 (parse_method)">
+        <el-form-item>
+          <template #label>
+            解析方式 (parse_method)
+            <el-tooltip content="auto: 自动选择；ocr: 强制OCR识别；txt: 纯文本提取" placement="top">
+              <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-select v-model="cfg.parseMethod.value">
             <el-option value="auto" label="auto" />
             <el-option value="ocr" label="ocr" />
@@ -320,7 +360,7 @@ onUnmounted(() => {
 
         <el-form-item v-if="uploading">
           <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
-          <div class="form-tip">{{ uploadProgress < 100 ? `上传中... ${uploadSpeed} ${uploadEta}` : '上传完成，服务端处理中...' }}</div>
+          <div class="form-tip">上传中... {{ uploadProgress < 100 ? `${uploadProgress}%` : '上传完成，服务端处理中...' }}</div>
         </el-form-item>
 
         <el-form-item>
