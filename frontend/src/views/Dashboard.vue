@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
-import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
+import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled, Setting } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { formatTime, statusTag } from '../utils/format'
+import { useConfig } from '../stores/config'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -12,11 +13,13 @@ import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
+const cfg = useConfig()
 const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, avg_duration_ms: 0 })
 const recentTasks = ref<any[]>([])
 const loading = ref(false)
 const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
+const showWelcome = ref(false)
 let sseClose: (() => void) | null = null
 
 const chartRef = shallowRef<echarts.ECharts | null>(null)
@@ -141,12 +144,19 @@ const resizeHandler = () => { chartRef.value?.resize(); pieRef.value?.resize() }
 
 onMounted(() => {
   loadStats().then(() => { loadTrend(); loadFiletypes() })
-  sseClose = api.onTaskEvent((evt) => {
-    if (evt.type === 'task_update') {
-      if (sseDebounce) clearTimeout(sseDebounce)
-      sseDebounce = setTimeout(() => { loadStats(); loadTrend(); loadFiletypes() }, 500)
-    }
-  })
+  if (!localStorage.getItem('welcome_dismissed') && cfg.mineruEndpoints.value.length === 0) {
+    showWelcome.value = true
+  }
+  sseClose = api.onTaskEvent(
+    (evt) => {
+      if (evt.type === 'task_update') {
+        if (sseDebounce) clearTimeout(sseDebounce)
+        sseDebounce = setTimeout(() => { loadStats(); loadTrend(); loadFiletypes() }, 500)
+      }
+    },
+    undefined,
+    () => { loadStats(); loadTrend(); loadFiletypes() },
+  )
   window.addEventListener('resize', resizeHandler)
 })
 onUnmounted(() => {
@@ -272,6 +282,23 @@ onUnmounted(() => {
   </div>
   </template>
   </div>
+
+  <el-dialog v-model="showWelcome" title="欢迎使用 MinerU Batch" width="480px" :close-on-click-modal="false">
+    <div style="line-height:1.8;color:#606266">
+      <p>MinerU Batch 是一个批量文档解析工具，可以将 PDF、图片、Word 等文件转换为 Markdown 格式，非常适合搭建 RAG 知识库。</p>
+      <h4 style="margin:16px 0 8px;color:#303133">快速开始</h4>
+      <ol style="padding-left:20px;margin:0">
+        <li>前往 <strong>设置页</strong> 配置 MinerU 服务地址</li>
+        <li>在 <strong>上传页</strong> 拖拽或选择文件上传</li>
+        <li>等待解析完成，在 <strong>任务页</strong> 预览或下载结果</li>
+      </ol>
+      <p style="margin-top:12px;font-size:13px;color:#909399">提示：如果没有 MinerU 服务，可以先体验界面功能。</p>
+    </div>
+    <template #footer>
+      <el-button @click="showWelcome = false; localStorage.setItem('welcome_dismissed', '1')">稍后再说</el-button>
+      <el-button type="primary" @click="showWelcome = false; localStorage.setItem('welcome_dismissed', '1'); router.push('/settings')">前往设置</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>

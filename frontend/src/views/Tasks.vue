@@ -457,16 +457,20 @@ watch(tasks, (list) => {
 
 onMounted(() => {
   loadTasks()
-  sseClose = api.onTaskEvent((evt) => {
-    if (evt.type === 'task_update') {
-      if (sseDebounce) clearTimeout(sseDebounce)
-      sseDebounce = setTimeout(() => loadTasks(), 300)
-      if (evt.status === 'completed' || evt.status === 'failed') {
-        const task = tasks.value.find(t => t.id === evt.task_id)
-        if (task) notifyTaskComplete(task.original_filename, evt.status)
+  sseClose = api.onTaskEvent(
+    (evt) => {
+      if (evt.type === 'task_update') {
+        if (sseDebounce) clearTimeout(sseDebounce)
+        sseDebounce = setTimeout(() => loadTasks(), 300)
+        if (evt.status === 'completed' || evt.status === 'failed') {
+          const task = tasks.value.find(t => t.id === evt.task_id)
+          if (task) notifyTaskComplete(task.original_filename, evt.status)
+        }
       }
-    }
-  })
+    },
+    undefined,
+    () => loadTasks(),
+  )
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => {

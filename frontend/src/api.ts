@@ -309,14 +309,30 @@ export const api = {
     return data as { type: string; count: number }[]
   },
 
+  async getTasksSince(since: string) {
+    const { data } = await http.get('/tasks/since', { params: { since } })
+    return data as { items: TaskItem[] }
+  },
+
   onTaskEvent(
     callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void,
     onStatusChange?: (connected: boolean) => void,
+    onReconnectSync?: (tasks: TaskItem[]) => void,
   ): () => void {
     let reconnectAttempts = 0
     const MAX_RECONNECT = 30
     let es: EventSource | null = null
     let stopped = false
+    let lastEventTime: string | null = null
+    let wasDisconnected = false
+
+    async function syncMissedTasks() {
+      if (!lastEventTime || !onReconnectSync) return
+      try {
+        const { items } = await api.getTasksSince(lastEventTime)
+        if (items.length > 0) onReconnectSync(items)
+      } catch {}
+    }
 
     function connect() {
       if (stopped) return
@@ -324,12 +340,21 @@ export const api = {
       es.onopen = () => {
         reconnectAttempts = 0
         onStatusChange?.(true)
+        if (wasDisconnected) {
+          syncMissedTasks()
+          wasDisconnected = false
+        }
       }
       es.onmessage = (e) => {
-        try { callback(JSON.parse(e.data)) } catch {}
+        try {
+          const data = JSON.parse(e.data)
+          lastEventTime = new Date().toISOString()
+          callback(data)
+        } catch {}
       }
       es.onerror = () => {
         onStatusChange?.(false)
+        wasDisconnected = true
         es?.close()
         if (stopped) return
         if (reconnectAttempts >= MAX_RECONNECT) return
@@ -343,6 +368,7 @@ export const api = {
     function onVisible() {
       if (document.visibilityState === 'visible' && (!es || es.readyState === EventSource.CLOSED)) {
         reconnectAttempts = 0
+        wasDisconnected = true
         es?.close()
         connect()
       }

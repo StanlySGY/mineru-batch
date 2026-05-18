@@ -52,6 +52,19 @@ def _safe_path(path: str) -> str:
     return normalized
 
 
+def _safe_remove(path: str):
+    """Remove file or directory, ignore errors."""
+    if not path or not os.path.exists(path):
+        return
+    try:
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        else:
+            os.remove(path)
+    except OSError:
+        pass
+
+
 def set_concurrency(n: int):
     global _task_semaphore, _max_concurrency
     _max_concurrency = max(1, min(n, 20))
@@ -75,7 +88,7 @@ def _notify_task_change(task_id: int, status: str, **extra):
     _emit_event("task_update", task_id, {"status": status, **extra})
 
 
-async def _send_webhook(task: FileTask, content: str = None):
+def _send_webhook_sync(task: FileTask, content: str = None):
     if not task.webhook_url:
         return
     try:
@@ -88,13 +101,17 @@ async def _send_webhook(task: FileTask, content: str = None):
         }
         if content:
             payload["content"] = content[:50000]
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(task.webhook_url, json=payload)
+        with httpx.Client(timeout=30) as client:
+            resp = client.post(task.webhook_url, json=payload)
             add_log(f"Webhook 推送: HTTP {resp.status_code}", task_id=task.id,
                     level="info" if resp.status_code < 400 else "warn",
                     detail=f"url={task.webhook_url}\nstatus={resp.status_code}")
     except Exception as e:
         add_log(f"Webhook 推送失败: {e}", task_id=task.id, level="warn")
+
+
+async def _send_webhook(task: FileTask, content: str = None):
+    await asyncio.to_thread(_send_webhook_sync, task, content)
 
 
 def _pick_endpoint(endpoints: list[dict]) -> dict:
@@ -127,7 +144,7 @@ def _is_doc_file(filename: str) -> bool:
     return os.path.splitext(filename)[1].lower() in DOC_EXTENSIONS
 
 
-async def _convert_to_pdf(input_path: str, task_id: int) -> str:
+def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
     out_dir = CONVERT_DIR
     profile_dir = os.path.join(CONVERT_DIR, f".lo_profile_{uuid.uuid4().hex[:8]}")
     os.makedirs(profile_dir, exist_ok=True)
@@ -139,26 +156,25 @@ async def _convert_to_pdf(input_path: str, task_id: int) -> str:
     add_log(f"LibreOffice 转换开始", task_id=task_id,
             detail=f"cmd={' '.join(cmd)}\ninput={os.path.basename(input_path)}")
     try:
-        async with _lo_semaphore:
-            result = await asyncio.to_thread(
-                subprocess.run, cmd, capture_output=True, text=True, timeout=120,
-                env={**os.environ, "HOME": "/tmp"}
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"LibreOffice exit {result.returncode}: {result.stderr[:500] or result.stdout[:500]}")
-            base = os.path.splitext(os.path.basename(input_path))[0]
-            pdf_path = os.path.join(out_dir, f"{base}.pdf")
-            if not os.path.exists(pdf_path):
-                for f in os.listdir(out_dir):
-                    if f.lower().endswith(".pdf"):
-                        cand = os.path.join(out_dir, f)
-                        if abs(os.path.getmtime(cand) - os.path.getmtime(input_path)) < 60:
-                            pdf_path = cand
-                            break
-            if not os.path.exists(pdf_path):
-                raise RuntimeError("PDF 文件未生成")
-            add_log(f"转换完成: {os.path.basename(pdf_path)}", task_id=task_id)
-            return pdf_path
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120,
+            env={**os.environ, "HOME": "/tmp"}
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"LibreOffice exit {result.returncode}: {result.stderr[:500] or result.stdout[:500]}")
+        base = os.path.splitext(os.path.basename(input_path))[0]
+        pdf_path = os.path.join(out_dir, f"{base}.pdf")
+        if not os.path.exists(pdf_path):
+            for f in os.listdir(out_dir):
+                if f.lower().endswith(".pdf"):
+                    cand = os.path.join(out_dir, f)
+                    if abs(os.path.getmtime(cand) - os.path.getmtime(input_path)) < 60:
+                        pdf_path = cand
+                        break
+        if not os.path.exists(pdf_path):
+            raise RuntimeError("PDF 文件未生成")
+        add_log(f"转换完成: {os.path.basename(pdf_path)}", task_id=task_id)
+        return pdf_path
     except subprocess.TimeoutExpired:
         raise RuntimeError("LibreOffice 转换超时(120s)")
     except Exception as e:
@@ -166,6 +182,10 @@ async def _convert_to_pdf(input_path: str, task_id: int) -> str:
         raise
     finally:
         shutil.rmtree(profile_dir, ignore_errors=True)
+
+
+async def _convert_to_pdf(input_path: str, task_id: int) -> str:
+    return await asyncio.to_thread(_convert_to_pdf_sync, input_path, task_id)
 
 
 def _build_mineru_form(task: FileTask) -> dict:
@@ -300,7 +320,7 @@ def _process_task_sync(task_id: int):
             else:
                 add_log(f"检测到文档格式，先转换为 PDF", task_id=task_id)
                 try:
-                    pdf_path = await _convert_to_pdf(task.file_path, task_id)
+                    pdf_path = _convert_to_pdf_sync(task.file_path, task_id)
                     task.pdf_path = pdf_path
                     file_to_parse = pdf_path
                     db.commit()
@@ -396,7 +416,7 @@ def _process_task_sync(task_id: int):
         task.completed_at = datetime.now(timezone.utc)
         db.commit()
         _notify_task_change(task_id, "completed")
-        await _send_webhook(task, md_content[:50000])
+        _send_webhook_sync(task, md_content[:50000])
     except Exception as e:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
         if task:
@@ -406,7 +426,7 @@ def _process_task_sync(task_id: int):
             db.commit()
             add_log(f"任务失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
             _notify_task_change(task_id, "failed", error_message=str(e))
-            await _send_webhook(task)
+            _send_webhook_sync(task)
     finally:
         with _cancel_lock:
             _cancelled_tasks.discard(task_id)
@@ -498,6 +518,16 @@ async def task_events():
                 if q in _sse_subscribers:
                     _sse_subscribers.remove(q)
     return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@router.get("/tasks/since")
+async def tasks_since(since: str = Query(..., description="ISO timestamp"), db: Session = Depends(get_db)):
+    try:
+        cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(400, "Invalid timestamp format")
+    tasks = db.query(FileTask).filter(FileTask.updated_at >= cutoff).all()
+    return {"items": [t.to_dict() for t in tasks]}
 
 
 MAX_FILE_SIZE = 200 * 1024 * 1024
@@ -641,7 +671,7 @@ async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db)):
         return {"detail": "already converted", "pdf_path": task.pdf_path}
 
     try:
-                pdf_path = await _convert_to_pdf(task.file_path, task_id)
+        pdf_path = await _convert_to_pdf(task.file_path, task_id)
         task.pdf_path = pdf_path
         task.auto_convert_doc = True
         db.commit()
@@ -677,12 +707,9 @@ async def batch_delete_tasks(ids: str = Query(..., description="comma-separated 
         return {"detail": "batch deleted", "count": 0}
     tasks = db.query(FileTask).filter(FileTask.id.in_(id_list)).all()
     for task in tasks:
-        if task.file_path and os.path.exists(task.file_path):
-            os.remove(task.file_path)
-        if task.output_path and os.path.exists(task.output_path):
-            os.remove(task.output_path)
-        if task.pdf_path and os.path.exists(task.pdf_path):
-            os.remove(task.pdf_path)
+        _safe_remove(task.file_path)
+        _safe_remove(task.output_path)
+        _safe_remove(task.pdf_path)
         db.delete(task)
     db.commit()
     return {"detail": "batch deleted", "count": len(tasks)}
@@ -774,12 +801,9 @@ async def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
-    if task.file_path and os.path.exists(task.file_path):
-        os.remove(task.file_path)
-    if task.output_path and os.path.exists(task.output_path):
-        os.remove(task.output_path)
-    if task.pdf_path and os.path.exists(task.pdf_path):
-        os.remove(task.pdf_path)
+    _safe_remove(task.file_path)
+    _safe_remove(task.output_path)
+    _safe_remove(task.pdf_path)
     db.delete(task)
     db.commit()
     return {"detail": "deleted"}
@@ -1001,19 +1025,33 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
         n = 0
         for f in os.listdir(OUTPUT_DIR):
             fp = os.path.join(OUTPUT_DIR, f)
-            if os.path.isfile(fp):
-                os.remove(fp)
-                n += 1
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+                    n += 1
+                elif os.path.isdir(fp):
+                    shutil.rmtree(fp)
+                    n += 1
+            except OSError:
+                pass
         cleaned["outputs"] = n
         db.query(FileTask).filter(FileTask.output_path.isnot(None)).update({"output_path": None})
         db.commit()
     if "converted" in targets:
         n = 0
         for f in os.listdir(CONVERT_DIR):
+            if f.startswith("."):
+                continue
             fp = os.path.join(CONVERT_DIR, f)
-            if os.path.isfile(fp) and not f.startswith("."):
-                os.remove(fp)
-                n += 1
+            try:
+                if os.path.isfile(fp):
+                    os.remove(fp)
+                    n += 1
+                elif os.path.isdir(fp):
+                    shutil.rmtree(fp)
+                    n += 1
+            except OSError:
+                pass
         cleaned["converted"] = n
     return {"detail": "cleaned", "counts": cleaned}
 
