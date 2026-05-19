@@ -1,6 +1,6 @@
 services:
   app:
-    image: mineru-batch:${TAG:-latest}
+    image: mineru-batch:${TAG:?TAG not set — run ./docker-build.sh first}
     ports:
       - "8900:8900"
     volumes:
