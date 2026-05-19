@@ -1,4 +1,5 @@
 import os
+import time
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, ForeignKey
 from sqlalchemy import create_engine, event
@@ -128,7 +129,7 @@ class ProcessLog(Base):
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./mineru_batch.db")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 15})
 
 
 @event.listens_for(engine, "connect")
@@ -153,17 +154,23 @@ def get_db():
 
 
 def add_log(message: str, level: str = "info", task_id: int = None, detail: str = None):
-    db = SessionLocal()
-    try:
-        log = ProcessLog(
-            task_id=task_id,
-            level=LogLevel(level),
-            message=message,
-            detail=detail,
-        )
-        db.add(log)
-        db.commit()
-    except Exception:
-        db.rollback()
-    finally:
-        db.close()
+    for attempt in range(3):
+        db = SessionLocal()
+        try:
+            log = ProcessLog(
+                task_id=task_id,
+                level=LogLevel(level),
+                message=message,
+                detail=detail,
+            )
+            db.add(log)
+            db.commit()
+            return
+        except Exception:
+            db.rollback()
+            if attempt < 2:
+                time.sleep(0.1 * (attempt + 1))
+                continue
+            raise
+        finally:
+            db.close()

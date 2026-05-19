@@ -14,6 +14,7 @@ import httpx
 import json as _json
 import html
 import markdown
+from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
@@ -44,12 +45,17 @@ _cancel_lock = threading.Lock()
 _max_concurrency = 5
 _SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.path.normpath(CONVERT_DIR))
 
+# 工作池：避免 create_task 风暴
+_task_queue: asyncio.Queue[int] = asyncio.Queue()
+_workers: list[asyncio.Task] = []
+
 
 def _safe_path(path: str) -> str:
-    normalized = os.path.normpath(path)
-    if not any(normalized.startswith(d) for d in _SAFE_DIRS):
-        raise HTTPException(403, "Access denied")
-    return normalized
+    target = Path(path).resolve()
+    for d in _SAFE_DIRS:
+        if target.is_relative_to(Path(d).resolve()):
+            return str(target)
+    raise HTTPException(403, "Access denied")
 
 
 def _safe_remove(path: str):
@@ -69,6 +75,37 @@ def set_concurrency(n: int):
     global _task_semaphore, _max_concurrency
     _max_concurrency = max(1, min(n, 20))
     _task_semaphore = asyncio.Semaphore(_max_concurrency)
+
+
+def _enqueue_task(task_id: int):
+    _task_queue.put_nowait(task_id)
+
+
+async def _worker_loop(worker_id: int):
+    while True:
+        task_id = await _task_queue.get()
+        try:
+            await _process_task(task_id)
+        except Exception:
+            pass
+        finally:
+            _task_queue.task_done()
+
+
+def start_workers(n: int = 0):
+    global _workers
+    if _workers:
+        return
+    count = n or _max_concurrency
+    _workers = [asyncio.create_task(_worker_loop(i), name=f"worker-{i}") for i in range(count)]
+
+
+def stop_workers():
+    global _workers
+    for w in _workers:
+        w.cancel()
+    _workers = []
+
 
 # SSE 事件总线
 _sse_subscribers: list[asyncio.Queue] = []
@@ -220,22 +257,22 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
     add_log(f"开始调用 MinerU API", task_id=task_id,
             detail=f"api={api_url}\nbackend={task.backend}\nserver_url={task.server_url}\nparse_method={task.parse_method}\nfile={os.path.basename(file_to_parse)}\ntimeout={timeout}s")
     try:
+        file_size = os.path.getsize(file_to_parse)
+        add_log(f"文件大小 {file_size} 字节，开始流式上传", task_id=task_id)
+        form_data = _build_mineru_form(task)
+        add_log(f"发送参数", task_id=task_id, detail=json.dumps(form_data, ensure_ascii=False))
+        headers = {}
+        api_key = task.api_key if hasattr(task, 'api_key') else None
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
         with httpx.Client(timeout=timeout) as client:
             with open(file_to_parse, "rb") as f:
-                file_data = f.read()
-            add_log(f"文件读取完成，大小 {len(file_data)} 字节", task_id=task_id)
-            form_data = _build_mineru_form(task)
-            add_log(f"发送参数", task_id=task_id, detail=json.dumps(form_data, ensure_ascii=False))
-            headers = {}
-            api_key = task.api_key if hasattr(task, 'api_key') else None
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            resp = client.post(
-                api_url,
-                files={"files": (os.path.basename(file_to_parse), file_data, "application/octet-stream")},
-                data=form_data,
-                headers=headers,
-            )
+                resp = client.post(
+                    api_url,
+                    files={"files": (os.path.basename(file_to_parse), f, "application/octet-stream")},
+                    data=form_data,
+                    headers=headers,
+                )
             add_log(f"MinerU 响应: HTTP {resp.status_code}", task_id=task_id,
                     level="info" if resp.status_code == 200 else "error",
                     detail=f"status={resp.status_code}\ncontent_type={resp.headers.get('content-type','')}\nbody_preview={resp.text[:2000] if resp.headers.get('content-type','').startswith('application/json') else '(binary)'}")
@@ -655,7 +692,7 @@ async def upload_files(
         task = db.query(FileTask).filter(FileTask.id == tid).first()
         if _is_doc_file(task.original_filename) and not task.auto_convert_doc:
             continue
-        asyncio.create_task(_process_task(tid))
+        _enqueue_task(tid)
 
     return {"tasks": results}
 
@@ -676,7 +713,7 @@ async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db)):
         task.auto_convert_doc = True
         db.commit()
         add_log(f"手动转换完成，开始解析", task_id=task_id)
-        asyncio.create_task(_process_task(task.id))
+        _enqueue_task(task.id)
         return {"detail": "converted", "pdf_path": pdf_path}
     except Exception as e:
         raise HTTPException(500, f"Conversion failed: {e}")
@@ -707,9 +744,9 @@ async def batch_delete_tasks(ids: str = Query(..., description="comma-separated 
         return {"detail": "batch deleted", "count": 0}
     tasks = db.query(FileTask).filter(FileTask.id.in_(id_list)).all()
     for task in tasks:
-        _safe_remove(task.file_path)
-        _safe_remove(task.output_path)
-        _safe_remove(task.pdf_path)
+        await asyncio.to_thread(_safe_remove, task.file_path)
+        await asyncio.to_thread(_safe_remove, task.output_path)
+        await asyncio.to_thread(_safe_remove, task.pdf_path)
         db.delete(task)
     db.commit()
     return {"detail": "batch deleted", "count": len(tasks)}
@@ -728,7 +765,7 @@ async def batch_retry_tasks(ids: str = Query(..., description="comma-separated t
         task.status = TaskStatus.PENDING
         task.error_message = None
         add_log(f"批量重试", task_id=task.id)
-        asyncio.create_task(_process_task(task.id))
+        _enqueue_task(task.id)
     db.commit()
     return {"detail": "batch retried", "count": len(tasks)}
 
@@ -748,7 +785,7 @@ async def batch_convert_tasks(ids: str = Query(..., description="comma-separated
                 task.auto_convert_doc = True
                 db.commit()
                 add_log(f"批量转换完成，开始解析", task_id=task.id)
-                asyncio.create_task(_process_task(task.id))
+                _enqueue_task(task.id)
                 converted += 1
             except Exception as e:
                 add_log(f"批量转换失败: {e}", task_id=task.id, level="error")
@@ -801,9 +838,9 @@ async def delete_task(task_id: int, db: Session = Depends(get_db)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
-    _safe_remove(task.file_path)
-    _safe_remove(task.output_path)
-    _safe_remove(task.pdf_path)
+    await asyncio.to_thread(_safe_remove, task.file_path)
+    await asyncio.to_thread(_safe_remove, task.output_path)
+    await asyncio.to_thread(_safe_remove, task.pdf_path)
     db.delete(task)
     db.commit()
     return {"detail": "deleted"}
@@ -877,7 +914,7 @@ async def retry_task(task_id: int, db: Session = Depends(get_db)):
     db.commit()
     add_log(f"任务重新提交", task_id=task_id)
 
-    asyncio.create_task(_process_task(task.id))
+    _enqueue_task(task.id)
     return task.to_dict()
 
 
@@ -1027,10 +1064,10 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
             fp = os.path.join(OUTPUT_DIR, f)
             try:
                 if os.path.isfile(fp):
-                    os.remove(fp)
+                    await asyncio.to_thread(os.remove, fp)
                     n += 1
                 elif os.path.isdir(fp):
-                    shutil.rmtree(fp)
+                    await asyncio.to_thread(shutil.rmtree, fp)
                     n += 1
             except OSError:
                 pass
@@ -1045,10 +1082,10 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
             fp = os.path.join(CONVERT_DIR, f)
             try:
                 if os.path.isfile(fp):
-                    os.remove(fp)
+                    await asyncio.to_thread(os.remove, fp)
                     n += 1
                 elif os.path.isdir(fp):
-                    shutil.rmtree(fp)
+                    await asyncio.to_thread(shutil.rmtree, fp)
                     n += 1
             except OSError:
                 pass
@@ -1068,7 +1105,7 @@ async def clean_completed_sources(db: Session = Depends(get_db)):
         if task.file_path and os.path.exists(task.file_path):
             try:
                 freed += os.path.getsize(task.file_path)
-                os.remove(task.file_path)
+                await asyncio.to_thread(os.remove, task.file_path)
                 task.file_path = None
                 count += 1
             except OSError:
