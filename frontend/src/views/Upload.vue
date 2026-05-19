@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onUnmounted, watch } from 'vue'
-import { UploadFilled, Document, Delete, QuestionFilled } from '@element-plus/icons-vue'
+import { ref, computed, onUnmounted } from 'vue'
+import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { requestNotificationPermission } from '../api'
@@ -8,6 +8,7 @@ import { useConfig } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
 import { useRouter } from 'vue-router'
 import type { UploadUserFile, UploadProps } from 'element-plus'
+import ConfigPanel from '../components/ConfigPanel.vue'
 
 const router = useRouter()
 const cfg = useConfig()
@@ -17,28 +18,21 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const uploadSpeed = ref('')
 const uploadEta = ref('')
-const showAdvanced = ref(false)
 const abortController = ref<AbortController | null>(null)
 
+// 配置面板 key——预设加载时递增强制重建子组件
+const configKey = ref(0)
 const presetProxy = ref('')
 
-// 表单数据模型：单颗 reactive 树，预设加载时整体替换
-// 避免 EP 组件逐个 ref 绑定在值变更后不刷新的问题
-const formData = reactive<Record<string, any>>({ ...cfg.getCurrentConfig() })
-
-// 表单 → cfg 反向同步（用户在此页修改后，上传流程读 cfg 拿到最新值）
-watch(formData, (val) => {
-  cfg.applyConfigData(val)
-}, { deep: true })
-
 function onPresetChange(name: string) {
-  if (name) {
-    cfg.loadPreset(name)
-    // 整体替换 reactive 对象 → 所有 v-model="formData.xxx" 同时响应
-    Object.assign(formData, cfg.getCurrentConfig())
-    ElMessage.success(`已加载预设 "${name}"`)
-  }
-  presetProxy.value = ''
+  if (!name) return
+  cfg.loadPreset(name)
+  configKey.value++
+  ElMessage.success(`已加载预设 "${name}"`)
+}
+
+function onConfigUpdate(val: Record<string, any>) {
+  cfg.applyConfigData(val)
 }
 
 const hasDocFiles = computed(() => fileList.value.some(f => isDocFile(f.name)))
@@ -294,93 +288,23 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <el-form label-position="top" class="config-form">
-        <el-form-item>
-          <template #label>
-            后端类型 (backend)
-            <el-tooltip content="hybrid: 纯文本偏多时更快；vlm: 含大量图片和复杂版式时效果更好" placement="top">
-              <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-select v-model="formData.backend">
-            <el-option value="hybrid-http-client" label="hybrid-http-client" />
-            <el-option value="vlm-http-client" label="vlm-http-client" />
-          </el-select>
-        </el-form-item>
+      <ConfigPanel
+        :key="configKey"
+        :config="cfg.getCurrentConfig()"
+        :has-doc-files="hasDocFiles"
+        @update:config="onConfigUpdate"
+      />
 
-        <el-form-item label="MinerU 服务地址">
-          <el-input v-model="formData.mineruApi" />
-        </el-form-item>
+      <div v-if="uploading" class="card-section">
+        <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
+        <div class="form-tip">上传中... {{ uploadProgress < 100 ? `${uploadProgress}%` : '上传完成，服务端处理中...' }}</div>
+      </div>
 
-        <el-form-item label="大模型服务地址 (server_url)">
-          <el-input v-model="formData.serverUrl" />
-        </el-form-item>
-
-        <el-form-item>
-          <template #label>
-            解析方式 (parse_method)
-            <el-tooltip content="auto: 自动选择；ocr: 强制OCR识别；txt: 纯文本提取" placement="top">
-              <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
-            </el-tooltip>
-          </template>
-          <el-select v-model="formData.parseMethod">
-            <el-option value="auto" label="auto" />
-            <el-option value="ocr" label="ocr" />
-            <el-option value="txt" label="txt" />
-          </el-select>
-        </el-form-item>
-
-        <el-form-item label="语言 (lang_list)">
-          <el-input v-model="formData.langList" placeholder="ch / en / ch,en" />
-        </el-form-item>
-
-        <el-form-item label="输出格式">
-          <el-radio-group v-model="formData.outputFormat">
-            <el-radio-button value="md">Markdown</el-radio-button>
-            <el-radio-button value="txt">纯文本</el-radio-button>
-            <el-radio-button value="html">HTML</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-
-        <el-form-item label="超时时间 (秒)">
-          <el-input-number v-model="formData.timeout" :min="60" :max="3600" :step="60" />
-          <div class="form-tip">大文件建议 600~1800 秒</div>
-        </el-form-item>
-
-        <el-form-item v-if="hasDocFiles" label="文档自动转 PDF">
-          <el-switch v-model="formData.autoConvert" />
-          <div class="form-tip">关闭后，Word/PPT/Excel 文件需在任务列表手动转换</div>
-        </el-form-item>
-
-        <el-link type="primary" :underline="false" @click="showAdvanced = !showAdvanced" style="margin: 4px 0">
-          {{ showAdvanced ? '收起高级选项 ▲' : '展开高级选项 ▼' }}
-        </el-link>
-
-        <template v-if="showAdvanced">
-          <el-form-item label="公式识别"><el-switch v-model="formData.formulaEnable" /></el-form-item>
-          <el-form-item label="表格识别"><el-switch v-model="formData.tableEnable" /></el-form-item>
-          <el-form-item label="返回 Markdown"><el-switch v-model="formData.returnMd" /></el-form-item>
-          <el-form-item label="返回 middle_json"><el-switch v-model="formData.returnMiddleJson" /></el-form-item>
-          <el-form-item label="返回模型输出"><el-switch v-model="formData.returnModelOutput" /></el-form-item>
-          <el-form-item label="返回 content_list"><el-switch v-model="formData.returnContentList" /></el-form-item>
-          <el-form-item label="返回图片"><el-switch v-model="formData.returnImages" /></el-form-item>
-          <el-form-item label="ZIP 格式响应"><el-switch v-model="formData.responseFormatZip" /></el-form-item>
-          <el-form-item label="替换图片 URL"><el-switch v-model="formData.replaceImageUrl" /></el-form-item>
-          <el-form-item label="起始页码"><el-input-number v-model="formData.startPageId" :min="0" :step="1" /></el-form-item>
-          <el-form-item label="结束页码"><el-input-number v-model="formData.endPageId" :min="0" :step="1" /></el-form-item>
-        </template>
-
-        <el-form-item v-if="uploading">
-          <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
-          <div class="form-tip">上传中... {{ uploadProgress < 100 ? `${uploadProgress}%` : '上传完成，服务端处理中...' }}</div>
-        </el-form-item>
-
-        <el-form-item>
-          <el-button type="primary" size="large" :loading="uploading" @click="handleUpload" class="submit-btn">
-            开始解析
-          </el-button>
-        </el-form-item>
-      </el-form>
+      <div class="card-section">
+        <el-button type="primary" size="large" :loading="uploading" @click="handleUpload" class="submit-btn">
+          开始解析
+        </el-button>
+      </div>
     </el-card>
   </div>
 </div>
@@ -394,7 +318,6 @@ onUnmounted(() => {
 }
 .upload-card { border-radius: 10px; }
 .config-card { border-radius: 10px; overflow-y: auto; }
-.config-form { display: flex; flex-direction: column; gap: 2px; }
 .submit-btn { width: 100%; margin-top: 8px; }
 .upload-dragger :deep(.el-upload-dragger) { padding: 40px 0; border-radius: 8px; }
 .upload-drop-zone { position: relative; }
@@ -419,6 +342,7 @@ onUnmounted(() => {
 .file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; }
 .doc-tag { flex-shrink: 0; }
 .file-remove { flex-shrink: 0; }
+.card-section { margin-top: 12px; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
 .folder-upload-hint { display: flex; justify-content: center; margin-top: 8px; }
 
