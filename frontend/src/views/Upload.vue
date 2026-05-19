@@ -21,13 +21,18 @@ const showAdvanced = ref(false)
 const abortController = ref<AbortController | null>(null)
 
 const presetProxy = ref('')
-const formKey = ref(0)
+const renderForm = ref(true)
 
 function onPresetChange(name: string) {
   if (name) {
     cfg.loadPreset(name)
-    formKey.value++
-    nextTick(() => ElMessage.success(`已加载预设 "${name}"`))
+    // Toggle force-remount: полностью удаляем и заново создаём форму,
+    // чтобы все Element Plus компоненты перечитали v-model из свежих cfg.*.value
+    renderForm.value = false
+    nextTick(() => {
+      renderForm.value = true
+      ElMessage.success(`已加载预设 "${name}"`)
+    })
   }
   presetProxy.value = ''
 }
@@ -285,7 +290,7 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <el-form :key="formKey" label-position="top" class="config-form">
+      <el-form v-if="renderForm" label-position="top" class="config-form">
         <el-form-item>
           <template #label>
             后端类型 (backend)
