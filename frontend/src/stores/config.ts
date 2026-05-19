@@ -129,6 +129,6 @@ export function useConfig() {
     mineruEndpoints,
     applyConfigData,
     resetDefaults,
-    presets, savePreset, loadPreset, deletePreset,
+    presets, savePreset, loadPreset, deletePreset, getCurrentConfig,
   }
 }

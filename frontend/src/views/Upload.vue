@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onUnmounted, watch } from 'vue'
 import { UploadFilled, Document, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
@@ -21,18 +21,22 @@ const showAdvanced = ref(false)
 const abortController = ref<AbortController | null>(null)
 
 const presetProxy = ref('')
-const renderForm = ref(true)
+
+// 表单数据模型：单颗 reactive 树，预设加载时整体替换
+// 避免 EP 组件逐个 ref 绑定在值变更后不刷新的问题
+const formData = reactive<Record<string, any>>({ ...cfg.getCurrentConfig() })
+
+// 表单 → cfg 反向同步（用户在此页修改后，上传流程读 cfg 拿到最新值）
+watch(formData, (val) => {
+  cfg.applyConfigData(val)
+}, { deep: true })
 
 function onPresetChange(name: string) {
   if (name) {
     cfg.loadPreset(name)
-    // Toggle force-remount: полностью удаляем и заново создаём форму,
-    // чтобы все Element Plus компоненты перечитали v-model из свежих cfg.*.value
-    renderForm.value = false
-    nextTick(() => {
-      renderForm.value = true
-      ElMessage.success(`已加载预设 "${name}"`)
-    })
+    // 整体替换 reactive 对象 → 所有 v-model="formData.xxx" 同时响应
+    Object.assign(formData, cfg.getCurrentConfig())
+    ElMessage.success(`已加载预设 "${name}"`)
   }
   presetProxy.value = ''
 }
@@ -290,7 +294,7 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <el-form v-if="renderForm" label-position="top" class="config-form">
+      <el-form label-position="top" class="config-form">
         <el-form-item>
           <template #label>
             后端类型 (backend)
@@ -298,18 +302,18 @@ onUnmounted(() => {
               <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
             </el-tooltip>
           </template>
-          <el-select v-model="cfg.backend.value">
+          <el-select v-model="formData.backend">
             <el-option value="hybrid-http-client" label="hybrid-http-client" />
             <el-option value="vlm-http-client" label="vlm-http-client" />
           </el-select>
         </el-form-item>
 
         <el-form-item label="MinerU 服务地址">
-          <el-input v-model="cfg.mineruApi.value" />
+          <el-input v-model="formData.mineruApi" />
         </el-form-item>
 
         <el-form-item label="大模型服务地址 (server_url)">
-          <el-input v-model="cfg.serverUrl.value" />
+          <el-input v-model="formData.serverUrl" />
         </el-form-item>
 
         <el-form-item>
@@ -319,7 +323,7 @@ onUnmounted(() => {
               <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
             </el-tooltip>
           </template>
-          <el-select v-model="cfg.parseMethod.value">
+          <el-select v-model="formData.parseMethod">
             <el-option value="auto" label="auto" />
             <el-option value="ocr" label="ocr" />
             <el-option value="txt" label="txt" />
@@ -327,11 +331,11 @@ onUnmounted(() => {
         </el-form-item>
 
         <el-form-item label="语言 (lang_list)">
-          <el-input v-model="cfg.langList.value" placeholder="ch / en / ch,en" />
+          <el-input v-model="formData.langList" placeholder="ch / en / ch,en" />
         </el-form-item>
 
         <el-form-item label="输出格式">
-          <el-radio-group v-model="cfg.outputFormat.value">
+          <el-radio-group v-model="formData.outputFormat">
             <el-radio-button value="md">Markdown</el-radio-button>
             <el-radio-button value="txt">纯文本</el-radio-button>
             <el-radio-button value="html">HTML</el-radio-button>
@@ -339,12 +343,12 @@ onUnmounted(() => {
         </el-form-item>
 
         <el-form-item label="超时时间 (秒)">
-          <el-input-number v-model="cfg.timeout.value" :min="60" :max="3600" :step="60" />
+          <el-input-number v-model="formData.timeout" :min="60" :max="3600" :step="60" />
           <div class="form-tip">大文件建议 600~1800 秒</div>
         </el-form-item>
 
         <el-form-item v-if="hasDocFiles" label="文档自动转 PDF">
-          <el-switch v-model="cfg.autoConvert.value" />
+          <el-switch v-model="formData.autoConvert" />
           <div class="form-tip">关闭后，Word/PPT/Excel 文件需在任务列表手动转换</div>
         </el-form-item>
 
@@ -353,17 +357,17 @@ onUnmounted(() => {
         </el-link>
 
         <template v-if="showAdvanced">
-          <el-form-item label="公式识别"><el-switch v-model="cfg.formulaEnable.value" /></el-form-item>
-          <el-form-item label="表格识别"><el-switch v-model="cfg.tableEnable.value" /></el-form-item>
-          <el-form-item label="返回 Markdown"><el-switch v-model="cfg.returnMd.value" /></el-form-item>
-          <el-form-item label="返回 middle_json"><el-switch v-model="cfg.returnMiddleJson.value" /></el-form-item>
-          <el-form-item label="返回模型输出"><el-switch v-model="cfg.returnModelOutput.value" /></el-form-item>
-          <el-form-item label="返回 content_list"><el-switch v-model="cfg.returnContentList.value" /></el-form-item>
-          <el-form-item label="返回图片"><el-switch v-model="cfg.returnImages.value" /></el-form-item>
-          <el-form-item label="ZIP 格式响应"><el-switch v-model="cfg.responseFormatZip.value" /></el-form-item>
-          <el-form-item label="替换图片 URL"><el-switch v-model="cfg.replaceImageUrl.value" /></el-form-item>
-          <el-form-item label="起始页码"><el-input-number v-model="cfg.startPageId.value" :min="0" :step="1" /></el-form-item>
-          <el-form-item label="结束页码"><el-input-number v-model="cfg.endPageId.value" :min="0" :step="1" /></el-form-item>
+          <el-form-item label="公式识别"><el-switch v-model="formData.formulaEnable" /></el-form-item>
+          <el-form-item label="表格识别"><el-switch v-model="formData.tableEnable" /></el-form-item>
+          <el-form-item label="返回 Markdown"><el-switch v-model="formData.returnMd" /></el-form-item>
+          <el-form-item label="返回 middle_json"><el-switch v-model="formData.returnMiddleJson" /></el-form-item>
+          <el-form-item label="返回模型输出"><el-switch v-model="formData.returnModelOutput" /></el-form-item>
+          <el-form-item label="返回 content_list"><el-switch v-model="formData.returnContentList" /></el-form-item>
+          <el-form-item label="返回图片"><el-switch v-model="formData.returnImages" /></el-form-item>
+          <el-form-item label="ZIP 格式响应"><el-switch v-model="formData.responseFormatZip" /></el-form-item>
+          <el-form-item label="替换图片 URL"><el-switch v-model="formData.replaceImageUrl" /></el-form-item>
+          <el-form-item label="起始页码"><el-input-number v-model="formData.startPageId" :min="0" :step="1" /></el-form-item>
+          <el-form-item label="结束页码"><el-input-number v-model="formData.endPageId" :min="0" :step="1" /></el-form-item>
         </template>
 
         <el-form-item v-if="uploading">
