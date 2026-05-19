@@ -236,8 +236,11 @@ export const api = {
     return data as { count: number }
   },
 
-  async retryTask(id: number) {
-    const { data } = await http.post(`/tasks/${id}/retry`)
+  async retryTask(id: number, opts?: { mineruApi?: string; serverUrl?: string }) {
+    const form = new FormData()
+    if (opts?.mineruApi) form.append('mineru_api', opts.mineruApi)
+    if (opts?.serverUrl) form.append('server_url', opts.serverUrl)
+    const { data } = await http.post(`/tasks/${id}/retry`, form)
     return data
   },
 

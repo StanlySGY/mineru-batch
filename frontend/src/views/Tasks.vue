@@ -172,6 +172,10 @@ watch(previewSearch, () => {
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
 
+const retryDialogVisible = ref(false)
+const retryTarget = ref<TaskItem | null>(null)
+const retryEndpointIdx = ref(-1) // -1 = keep original
+
 const cfg = useConfig()
 
 function applyTaskAsPreset(task: TaskItem) {
@@ -290,9 +294,29 @@ async function handleConvertAllDocs() {
   } catch { ElMessage.error('批量转换失败') }
 }
 
-async function handleRetry(row: TaskItem) {
+function handleRetry(row: TaskItem) {
+  const endpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
+  if (endpoints.length <= 1) {
+    // Only one endpoint — retry directly without dialog
+    doRetry(row)
+    return
+  }
+  retryTarget.value = row
+  retryEndpointIdx.value = -1
+  retryDialogVisible.value = true
+}
+
+async function doRetry(row: TaskItem) {
+  const opts: { mineruApi?: string; serverUrl?: string } = {}
+  if (retryEndpointIdx.value >= 0) {
+    const ep = cfg.mineruEndpoints.value.filter(e => e.enabled)[retryEndpointIdx.value]
+    if (ep) {
+      opts.mineruApi = ep.url
+      opts.serverUrl = ep.serverUrl
+    }
+  }
   try {
-    await api.retryTask(row.id)
+    await api.retryTask(row.id, opts)
     ElMessage.success('已重新提交')
     loadTasks()
   } catch {
@@ -550,22 +574,22 @@ function checkMobile() {
     <el-table-column label="操作" width="280" fixed="right">
       <template #default="{ row }">
         <el-tooltip v-if="isDocFile(row.original_filename) && !row.pdf_path" content="转换为PDF" placement="top">
-          <el-button size="small" type="warning" :icon="Switch" :disabled="row.status === 'processing'" @click="handleConvertDoc(row)" circle />
+          <el-button size="small" type="warning" :icon="Switch" :disabled="row.status === 'processing'" @click.stop="handleConvertDoc(row)" circle />
         </el-tooltip>
         <el-tooltip content="预览" placement="top">
-          <el-button size="small" type="success" :icon="View" :disabled="row.status !== 'completed'" @click="handlePreview(row)" circle />
+          <el-button size="small" type="success" :icon="View" :disabled="row.status !== 'completed'" @click.stop="handlePreview(row)" circle />
         </el-tooltip>
         <el-tooltip content="下载" placement="top">
-          <el-button size="small" type="primary" :icon="Download" :disabled="row.status !== 'completed'" @click="handleDownload(row)" circle />
+          <el-button size="small" type="primary" :icon="Download" :disabled="row.status !== 'completed'" @click.stop="handleDownload(row)" circle />
         </el-tooltip>
         <el-tooltip content="重试" placement="top">
-          <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click="handleRetry(row)" circle />
+          <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click.stop="handleRetry(row)" circle />
         </el-tooltip>
         <el-tooltip content="取消" placement="top">
-          <el-button size="small" type="info" :icon="CircleClose" :disabled="row.status !== 'pending' && row.status !== 'processing'" @click="handleCancel(row)" circle />
+          <el-button size="small" type="info" :icon="CircleClose" :disabled="row.status !== 'pending' && row.status !== 'processing'" @click.stop="handleCancel(row)" circle />
         </el-tooltip>
         <el-tooltip content="删除" placement="top">
-          <el-button size="small" type="danger" :icon="Delete" @click="handleDelete(row)" circle />
+          <el-button size="small" type="danger" :icon="Delete" @click.stop="handleDelete(row)" circle />
         </el-tooltip>
       </template>
     </el-table-column>
@@ -691,6 +715,40 @@ function checkMobile() {
     </div>
   </template>
 </el-drawer>
+
+<el-dialog v-model="retryDialogVisible" title="选择重试节点" width="460px" top="30vh" destroy-on-close>
+  <template v-if="retryTarget">
+    <p style="margin:0 0 12px;font-size:14px;color:#606266">
+      重试任务：<strong>{{ retryTarget.original_filename }}</strong>
+    </p>
+    <el-radio-group v-model="retryEndpointIdx" class="retry-endpoint-list">
+      <el-radio :value="-1" border style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px">
+        <div>
+          <div style="font-weight:500">保持原节点</div>
+          <div style="font-size:12px;color:#909399;margin-top:2px">{{ retryTarget.mineru_api }}</div>
+        </div>
+      </el-radio>
+      <el-radio
+        v-for="(ep, idx) in cfg.mineruEndpoints.value.filter(e => e.enabled)"
+        :key="idx"
+        :value="idx"
+        border
+        style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px"
+      >
+        <div>
+          <div style="font-weight:500">节点 {{ idx + 1 }}{{ ep.url === retryTarget.mineru_api ? ' (当前)' : '' }}</div>
+          <div style="font-size:12px;color:#909399;margin-top:2px">{{ ep.url }}</div>
+        </div>
+      </el-radio>
+    </el-radio-group>
+  </template>
+  <template #footer>
+    <el-button @click="retryDialogVisible = false">取消</el-button>
+    <el-button type="warning" :disabled="retryEndpointIdx < -1" @click="doRetry(retryTarget!); retryDialogVisible = false">
+      重试
+    </el-button>
+  </template>
+</el-dialog>
 </template>
 
 <style scoped>

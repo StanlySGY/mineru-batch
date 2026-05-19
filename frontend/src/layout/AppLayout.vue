@@ -210,7 +210,7 @@ onUnmounted(() => {
 .sse-dot { width: 6px; height: 6px; border-radius: 50%; background: #909399; }
 .sse-status.connected .sse-dot { background: #67c23a; }
 
-.page-content { flex: 1; overflow-y: auto; padding: 24px; width: 100%; }
+.page-content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 24px; box-sizing: border-box; }
 
 .fade-enter-active, .fade-leave-active { transition: opacity 0.15s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }

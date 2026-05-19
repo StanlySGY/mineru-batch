@@ -902,7 +902,12 @@ async def cancel_task(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/tasks/{task_id}/retry")
-async def retry_task(task_id: int, db: Session = Depends(get_db)):
+async def retry_task(
+    task_id: int,
+    mineru_api: str = Form(None),
+    server_url: str = Form(None),
+    db: Session = Depends(get_db),
+):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
@@ -911,6 +916,10 @@ async def retry_task(task_id: int, db: Session = Depends(get_db)):
     task.output_path = None
     task.status = TaskStatus.PENDING
     task.error_message = None
+    if mineru_api:
+        task.mineru_api = mineru_api
+    if server_url:
+        task.server_url = server_url
     db.commit()
     add_log(f"任务重新提交", task_id=task_id)
 
