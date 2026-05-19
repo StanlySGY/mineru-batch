@@ -41,6 +41,8 @@ function fmtBool(key: string): boolean {
 
 <template>
   <div class="config-summary">
+    <!-- 渲染触发器：_tick 变化时强制重渲染 -->
+    <span style="display:none">{{ cfg._tick.value }}</span>
     <!-- 核心信息卡片 -->
     <div class="summary-section">
       <div class="section-title">核心配置</div>

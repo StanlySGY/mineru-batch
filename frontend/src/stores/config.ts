@@ -85,6 +85,7 @@ function resetDefaults() {
     cfg[k as keyof typeof DEFAULTS].value = v as never
   }
   mineruEndpoints.value = [{ ...DEFAULT_ENDPOINT }]
+  _tick.value++
 }
 
 // Presets
@@ -99,6 +100,9 @@ function getCurrentConfig(): Record<string, unknown> {
   return Object.fromEntries(Object.entries(cfg).map(([k, r]) => [k, r.value]))
 }
 
+// 渲染触发器——每次 config 被外部修改时递增，组件引用它来强制重渲染
+const _tick = ref(0)
+
 function applyConfigData(data: Record<string, unknown>) {
   console.debug('[config] applyConfigData:', JSON.stringify(data))
   for (const [k, r] of Object.entries(cfg)) {
@@ -108,6 +112,7 @@ function applyConfigData(data: Record<string, unknown>) {
       console.debug(`[config]  ${k}: ${JSON.stringify(old)} → ${JSON.stringify(data[k])}`)
     }
   }
+  _tick.value++
 }
 
 const presets = ref<Preset[]>(loadPresets())
@@ -131,6 +136,7 @@ function deletePreset(name: string) {
 export function useConfig() {
   return {
     ...cfg,
+    _tick,
     mineruEndpoints,
     applyConfigData,
     resetDefaults,
