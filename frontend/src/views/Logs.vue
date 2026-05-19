@@ -221,7 +221,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.logs-card { border-radius: 10px; height: 100%; display: flex; flex-direction: column; }
+.logs-card { border-radius: 10px; display: flex; flex-direction: column; }
 .logs-card :deep(.el-card__body) { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 .card-header { display: flex; align-items: center; }
 .card-header .filter-row { margin-left: auto; display: flex; align-items: center; gap: 8px; }

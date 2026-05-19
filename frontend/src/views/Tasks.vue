@@ -174,7 +174,9 @@ const detailTask = ref<TaskItem | null>(null)
 
 const retryDialogVisible = ref(false)
 const retryTarget = ref<TaskItem | null>(null)
-const retryEndpointIdx = ref(-1) // -1 = keep original
+const retryEndpointIdx = ref(-1) // -1=keep original, -2=custom
+const retryCustomUrl = ref('')
+const retryCustomServerUrl = ref('')
 
 const cfg = useConfig()
 
@@ -295,20 +297,20 @@ async function handleConvertAllDocs() {
 }
 
 function handleRetry(row: TaskItem) {
-  const endpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
-  if (endpoints.length <= 1) {
-    // Only one endpoint — retry directly without dialog
-    doRetry(row)
-    return
-  }
   retryTarget.value = row
   retryEndpointIdx.value = -1
+  retryCustomUrl.value = ''
+  retryCustomServerUrl.value = ''
   retryDialogVisible.value = true
 }
 
 async function doRetry(row: TaskItem) {
   const opts: { mineruApi?: string; serverUrl?: string } = {}
-  if (retryEndpointIdx.value >= 0) {
+  if (retryEndpointIdx.value === -2) {
+    // Custom URL
+    if (retryCustomUrl.value) opts.mineruApi = retryCustomUrl.value
+    if (retryCustomServerUrl.value) opts.serverUrl = retryCustomServerUrl.value
+  } else if (retryEndpointIdx.value >= 0) {
     const ep = cfg.mineruEndpoints.value.filter(e => e.enabled)[retryEndpointIdx.value]
     if (ep) {
       opts.mineruApi = ep.url
@@ -716,9 +718,9 @@ function checkMobile() {
   </template>
 </el-drawer>
 
-<el-dialog v-model="retryDialogVisible" title="选择重试节点" width="460px" top="30vh" destroy-on-close>
+<el-dialog v-model="retryDialogVisible" title="选择重试节点" width="480px" top="25vh" destroy-on-close>
   <template v-if="retryTarget">
-    <p style="margin:0 0 12px;font-size:14px;color:#606266">
+    <p style="margin:0 0 16px;font-size:14px;color:#606266">
       重试任务：<strong>{{ retryTarget.original_filename }}</strong>
     </p>
     <el-radio-group v-model="retryEndpointIdx" class="retry-endpoint-list">
@@ -730,7 +732,7 @@ function checkMobile() {
       </el-radio>
       <el-radio
         v-for="(ep, idx) in cfg.mineruEndpoints.value.filter(e => e.enabled)"
-        :key="idx"
+        :key="'ep-'+idx"
         :value="idx"
         border
         style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px"
@@ -740,11 +742,28 @@ function checkMobile() {
           <div style="font-size:12px;color:#909399;margin-top:2px">{{ ep.url }}</div>
         </div>
       </el-radio>
+      <el-radio :value="-2" border style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px">
+        <div>
+          <div style="font-weight:500">使用其他节点</div>
+          <div style="font-size:12px;color:#909399;margin-top:2px">输入自定义 MinerU 服务地址</div>
+        </div>
+      </el-radio>
     </el-radio-group>
+
+    <transition name="fade">
+      <div v-if="retryEndpointIdx === -2" class="custom-endpoint-form">
+        <el-input v-model="retryCustomUrl" placeholder="MinerU API 地址 (file_parse)" style="margin-bottom:8px" />
+        <el-input v-model="retryCustomServerUrl" placeholder="大模型服务地址 (server_url, 可选)" />
+      </div>
+    </transition>
   </template>
   <template #footer>
     <el-button @click="retryDialogVisible = false">取消</el-button>
-    <el-button type="warning" :disabled="retryEndpointIdx < -1" @click="doRetry(retryTarget!); retryDialogVisible = false">
+    <el-button
+      type="warning"
+      :disabled="retryEndpointIdx === -2 && !retryCustomUrl"
+      @click="doRetry(retryTarget!); retryDialogVisible = false"
+    >
       重试
     </el-button>
   </template>
@@ -752,7 +771,7 @@ function checkMobile() {
 </template>
 
 <style scoped>
-.table-card { border-radius: 10px; height: 100%; }
+.table-card { border-radius: 10px; }
 .summary-bar {
   display: flex; align-items: center; gap: 8px; padding: 8px 0 12px;
   font-size: 13px; color: #606266; flex-wrap: wrap;
@@ -816,4 +835,10 @@ function checkMobile() {
 .mobile-card-time { font-size: 12px; color: #c0c4cc; }
 .mobile-card-error { font-size: 12px; color: #f56c6c; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-card-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; }
+
+.custom-endpoint-form {
+  background: #f5f7fa; border-radius: 8px; padding: 12px; margin-top: 4px;
+}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

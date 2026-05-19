@@ -382,7 +382,6 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 1fr 380px;
   gap: 20px;
-  height: 100%;
 }
 .upload-card { border-radius: 10px; }
 .config-card { border-radius: 10px; overflow-y: auto; }

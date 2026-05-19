@@ -904,8 +904,8 @@ async def cancel_task(task_id: int, db: Session = Depends(get_db)):
 @router.post("/tasks/{task_id}/retry")
 async def retry_task(
     task_id: int,
-    mineru_api: str = Form(None),
-    server_url: str = Form(None),
+    mineru_api: str | None = Form(None),
+    server_url: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
