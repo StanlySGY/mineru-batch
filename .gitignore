@@ -32,5 +32,9 @@ Thumbs.db
 # Claude Code
 .claude/
 
+# Docker
+.env
+*.tar.gz
+
 # Playwright MCP cache
 .playwright-mcp/
