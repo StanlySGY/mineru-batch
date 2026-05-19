@@ -24,7 +24,7 @@ def _upload_form(overrides=None):
 
 class TestUpload:
     def test_single_pdf(self, client, tmp_dirs):
-        with patch("asyncio.create_task"):
+        with patch("routes._enqueue_task"):
             resp = client.post("/api/upload",
                 files=[("files", ("test.pdf", MINIMAL_PDF, "application/pdf"))],
                 data=_upload_form())
@@ -32,7 +32,7 @@ class TestUpload:
         assert len(resp.json()) == 1
 
     def test_multiple_files(self, client, tmp_dirs):
-        with patch("asyncio.create_task"):
+        with patch("routes._enqueue_task"):
             resp = client.post("/api/upload",
                 files=[
                     ("files", ("a.pdf", MINIMAL_PDF, "application/pdf")),
@@ -95,7 +95,7 @@ class TestCancelRetry:
     def test_retry_failed(self, client, sample_task, db_session):
         sample_task.status = TaskStatus.FAILED
         db_session.commit()
-        with patch("asyncio.create_task"):
+        with patch("routes._enqueue_task"):
             resp = client.post(f"/api/tasks/{sample_task.id}/retry")
         assert resp.status_code == 200
 

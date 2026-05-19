@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from models import init_db, SessionLocal, FileTask, TaskStatus
-from routes import router, _notify_task_change, add_log
+from routes import router, _notify_task_change, add_log, _enqueue_task, start_workers
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
@@ -67,8 +67,8 @@ async def lifespan(app: FastAPI):
         tasks = _db.query(FileTask).filter(FileTask.status == TaskStatus.PENDING).all()
         _db.close()
         for t in tasks:
-            from routes import _process_task
-            asyncio.create_task(_process_task(t.id))
+            _enqueue_task(t.id)
+    start_workers()
     asyncio.get_event_loop().call_later(1.0, lambda: asyncio.ensure_future(_requeue_stale()))
 
     async def _check_task_timeouts():
