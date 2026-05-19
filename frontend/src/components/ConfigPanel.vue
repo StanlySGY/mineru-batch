@@ -1,108 +1,194 @@
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
-import { QuestionFilled } from '@element-plus/icons-vue'
+import { useConfig } from '../stores/config'
 
-const props = defineProps<{
-  config: Record<string, any>
-  hasDocFiles: boolean
-}>()
+const cfg = useConfig()
 
-const emit = defineEmits<{
-  (e: 'update:config', val: Record<string, any>): void
-}>()
+const CORE_KEYS = ['backend', 'parseMethod', 'outputFormat', 'timeout'] as const
+const LABELS: Record<string, string> = {
+  backend: '后端类型',
+  mineruApi: 'MinerU 地址',
+  serverUrl: '大模型地址',
+  parseMethod: '解析方式',
+  langList: '语言',
+  outputFormat: '输出格式',
+  timeout: '超时',
+  formulaEnable: '公式识别',
+  tableEnable: '表格识别',
+  returnMd: 'Markdown',
+  returnMiddleJson: 'middle_json',
+  returnModelOutput: '模型输出',
+  returnContentList: 'content_list',
+  returnImages: '返回图片',
+  responseFormatZip: 'ZIP 压缩',
+  replaceImageUrl: '替换图片URL',
+  startPageId: '起始页码',
+  endPageId: '结束页码',
+  autoConvert: '自动转PDF',
+}
 
-// 本地深拷贝 reactive 对象——组件实例销毁时一同销毁，不受外部影响
-const local = reactive<Record<string, any>>({ ...props.config })
-console.debug('[ConfigPanel] created with props.config:', { ...props.config }, 'local:', { ...local })
+function fmt(key: string): string {
+  const v = (cfg as any)[key]?.value
+  if (v === undefined || v === null) return '—'
+  if (typeof v === 'boolean') return ''
+  if (key === 'timeout') return `${v}s`
+  return String(v)
+}
 
-// 用户修改 → emit 给父组件同步 cfg store
-watch(local, (val) => {
-  emit('update:config', { ...val })
-}, { deep: true })
-
-const showAdvanced = ref(false)
+function fmtBool(key: string): boolean {
+  return !!((cfg as any)[key]?.value)
+}
 </script>
 
 <template>
-  <el-form label-position="top" class="config-form">
-    <el-form-item>
-      <template #label>
-        后端类型 (backend)
-        <el-tooltip content="hybrid: 纯文本偏多时更快；vlm: 含大量图片和复杂版式时效果更好" placement="top">
-          <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
-        </el-tooltip>
-      </template>
-      <el-select v-model="local.backend">
-        <el-option value="hybrid-http-client" label="hybrid-http-client" />
-        <el-option value="vlm-http-client" label="vlm-http-client" />
-      </el-select>
-    </el-form-item>
+  <div class="config-summary">
+    <!-- 核心信息卡片 -->
+    <div class="summary-section">
+      <div class="section-title">核心配置</div>
+      <div class="summary-grid">
+        <div v-for="k in CORE_KEYS" :key="k" class="summary-item">
+          <span class="summary-label">{{ LABELS[k] || k }}</span>
+          <span class="summary-value">{{ fmt(k) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">预设节点</span>
+          <span class="summary-value tag-value">
+            <el-tag v-if="cfg.mineruEndpoints.value.length" size="small" type="info">
+              {{ cfg.mineruEndpoints.value.filter(e => e.enabled).length }} / {{ cfg.mineruEndpoints.value.length }} 节点在线
+            </el-tag>
+            <span v-else class="dim">未配置</span>
+          </span>
+        </div>
+      </div>
+    </div>
 
-    <el-form-item label="MinerU 服务地址">
-      <el-input v-model="local.mineruApi" />
-    </el-form-item>
+    <!-- 布尔开关区 -->
+    <div class="summary-section">
+      <div class="section-title">功能开关</div>
+      <div class="toggle-row">
+        <el-tag v-for="k in ['formulaEnable','tableEnable','returnMd','returnMiddleJson','returnModelOutput','returnContentList','returnImages','responseFormatZip','replaceImageUrl','autoConvert']" :key="k"
+          :type="fmtBool(k) ? 'success' : 'info'"
+          :effect="fmtBool(k) ? 'light' : 'plain'"
+          size="small"
+          class="toggle-tag"
+        >
+          {{ LABELS[k] || k }}
+        </el-tag>
+      </div>
+    </div>
 
-    <el-form-item label="大模型服务地址 (server_url)">
-      <el-input v-model="local.serverUrl" />
-    </el-form-item>
+    <!-- 地址信息 -->
+    <div class="summary-section sec-address">
+      <div class="section-title">服务地址</div>
+      <div class="addr-line">
+        <span class="addr-label">MinerU API</span>
+        <code class="addr-value">{{ fmt('mineruApi') }}</code>
+      </div>
+      <div class="addr-line">
+        <span class="addr-label">LLM Server</span>
+        <code class="addr-value">{{ fmt('serverUrl') }}</code>
+      </div>
+      <div v-if="fmt('langList') && fmt('langList') !== 'ch'" class="addr-line">
+        <span class="addr-label">语言</span>
+        <code class="addr-value">{{ fmt('langList') }}</code>
+      </div>
+      <div v-if="fmt('startPageId') !== '0' || fmt('endPageId') !== '99999'" class="addr-line">
+        <span class="addr-label">页码范围</span>
+        <code class="addr-value">{{ fmt('startPageId') }} — {{ fmt('endPageId') }}</code>
+      </div>
+    </div>
 
-    <el-form-item>
-      <template #label>
-        解析方式 (parse_method)
-        <el-tooltip content="auto: 自动选择；ocr: 强制OCR识别；txt: 纯文本提取" placement="top">
-          <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
-        </el-tooltip>
-      </template>
-      <el-select v-model="local.parseMethod">
-        <el-option value="auto" label="auto" />
-        <el-option value="ocr" label="ocr" />
-        <el-option value="txt" label="txt" />
-      </el-select>
-    </el-form-item>
-
-    <el-form-item label="语言 (lang_list)">
-      <el-input v-model="local.langList" placeholder="ch / en / ch,en" />
-    </el-form-item>
-
-    <el-form-item label="输出格式">
-      <el-radio-group v-model="local.outputFormat">
-        <el-radio-button value="md">Markdown</el-radio-button>
-        <el-radio-button value="txt">纯文本</el-radio-button>
-        <el-radio-button value="html">HTML</el-radio-button>
-      </el-radio-group>
-    </el-form-item>
-
-    <el-form-item label="超时时间 (秒)">
-      <el-input-number v-model="local.timeout" :min="60" :max="3600" :step="60" />
-      <div class="form-tip">大文件建议 600~1800 秒</div>
-    </el-form-item>
-
-    <el-form-item v-if="hasDocFiles" label="文档自动转 PDF">
-      <el-switch v-model="local.autoConvert" />
-      <div class="form-tip">关闭后，Word/PPT/Excel 文件需在任务列表手动转换</div>
-    </el-form-item>
-
-    <el-link type="primary" :underline="false" @click="showAdvanced = !showAdvanced" style="margin: 4px 0">
-      {{ showAdvanced ? '收起高级选项 ▲' : '展开高级选项 ▼' }}
-    </el-link>
-
-    <template v-if="showAdvanced">
-      <el-form-item label="公式识别"><el-switch v-model="local.formulaEnable" /></el-form-item>
-      <el-form-item label="表格识别"><el-switch v-model="local.tableEnable" /></el-form-item>
-      <el-form-item label="返回 Markdown"><el-switch v-model="local.returnMd" /></el-form-item>
-      <el-form-item label="返回 middle_json"><el-switch v-model="local.returnMiddleJson" /></el-form-item>
-      <el-form-item label="返回模型输出"><el-switch v-model="local.returnModelOutput" /></el-form-item>
-      <el-form-item label="返回 content_list"><el-switch v-model="local.returnContentList" /></el-form-item>
-      <el-form-item label="返回图片"><el-switch v-model="local.returnImages" /></el-form-item>
-      <el-form-item label="ZIP 格式响应"><el-switch v-model="local.responseFormatZip" /></el-form-item>
-      <el-form-item label="替换图片 URL"><el-switch v-model="local.replaceImageUrl" /></el-form-item>
-      <el-form-item label="起始页码"><el-input-number v-model="local.startPageId" :min="0" :step="1" /></el-form-item>
-      <el-form-item label="结束页码"><el-input-number v-model="local.endPageId" :min="0" :step="1" /></el-form-item>
-    </template>
-  </el-form>
+    <div class="config-hint">
+      <el-link type="info" :underline="false" @click="$router.push('/settings')" size="small">
+        前往设置页编辑配置 ↗
+      </el-link>
+    </div>
+  </div>
 </template>
 
 <style scoped>
-.config-form { display: flex; flex-direction: column; gap: 2px; }
-.form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
+.config-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.summary-section {
+  background: #f8f9fb;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #909399;
+  margin-bottom: 10px;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.summary-label {
+  font-size: 11px;
+  color: #909399;
+}
+
+.summary-value {
+  font-size: 13px;
+  color: #303133;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.tag-value { line-height: 24px; }
+
+.dim { color: #c0c4cc; font-style: italic; font-size: 12px; }
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.toggle-tag { font-size: 12px; }
+
+.sec-address .addr-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.addr-label {
+  font-size: 11px;
+  color: #909399;
+  flex-shrink: 0;
+  min-width: 72px;
+}
+
+.addr-value {
+  font-size: 12px;
+  color: #303133;
+  background: #eef0f4;
+  padding: 2px 8px;
+  border-radius: 4px;
+  word-break: break-all;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.config-hint {
+  text-align: center;
+  padding-top: 2px;
+}
 </style>

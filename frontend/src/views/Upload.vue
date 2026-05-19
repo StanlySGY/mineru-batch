@@ -20,24 +20,15 @@ const uploadSpeed = ref('')
 const uploadEta = ref('')
 const abortController = ref<AbortController | null>(null)
 
-// 配置面板 key——预设加载时递增强制重建子组件
-const configKey = ref(0)
 const presetProxy = ref('')
 
 function onPresetChange(name: string) {
   if (!name) return
   cfg.loadPreset(name)
-  const after = cfg.getCurrentConfig()
-  console.debug('[preset] loaded:', name, '→ cfg values:', after)
-  configKey.value++
+  console.debug('[preset] loaded:', name)
   ElMessage.success(`已加载预设 "${name}"`)
 }
 
-function onConfigUpdate(val: Record<string, any>) {
-  cfg.applyConfigData(val)
-}
-
-const hasDocFiles = computed(() => fileList.value.some(f => isDocFile(f.name)))
 const totalSize = computed(() => {
   const bytes = fileList.value.reduce((sum, f) => sum + (f.raw?.size || 0), 0)
   if (!bytes) return ''
@@ -290,12 +281,7 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <ConfigPanel
-        :key="configKey"
-        :config="cfg.getCurrentConfig()"
-        :has-doc-files="hasDocFiles"
-        @update:config="onConfigUpdate"
-      />
+      <ConfigPanel />
 
       <div v-if="uploading" class="card-section">
         <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
