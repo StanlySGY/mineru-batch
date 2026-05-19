@@ -15,23 +15,30 @@ from models import init_db, SessionLocal, FileTask, TaskStatus
 from routes import router, _notify_task_change, add_log, _enqueue_task, start_workers
 
 BASE_DIR = Path(__file__).resolve().parent
-FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
-DEV_MODE = os.environ.get("DEV_MODE", "").strip() in ("1", "true", "yes")
 
-VERSION_FILE = BASE_DIR.parent / "VERSION"
+_frontend = BASE_DIR / "frontend"
+if not _frontend.is_dir():
+    _frontend = BASE_DIR.parent / "frontend"
+FRONTEND_DIR = _frontend
+FRONTEND_DIST = FRONTEND_DIR / "dist"
+
+_version = BASE_DIR / "VERSION"
+if not _version.is_file():
+    _version = BASE_DIR.parent / "VERSION"
+VERSION_FILE = _version
 APP_VERSION = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "0.0.0"
+
+DEV_MODE = os.environ.get("DEV_MODE", "").strip() in ("1", "true", "yes")
 
 
 def _ensure_frontend():
-    """Auto-build frontend if dist/ is missing."""
     if DEV_MODE or FRONTEND_DIST.exists():
         return
-    frontend_dir = BASE_DIR.parent / "frontend"
     print("=== 前端 dist 不存在，自动构建中... ===", flush=True)
     npm = "npm.cmd" if sys.platform == "win32" else "npm"
     result = subprocess.run(
         [npm, "run", "build"],
-        cwd=str(frontend_dir),
+        cwd=str(FRONTEND_DIR),
         capture_output=True, text=True, timeout=120,
     )
     if result.returncode != 0:
