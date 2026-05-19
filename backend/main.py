@@ -18,6 +18,9 @@ BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 DEV_MODE = os.environ.get("DEV_MODE", "").strip() in ("1", "true", "yes")
 
+VERSION_FILE = BASE_DIR.parent / "VERSION"
+APP_VERSION = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "0.0.0"
+
 
 def _ensure_frontend():
     """Auto-build frontend if dist/ is missing."""
@@ -114,6 +117,12 @@ if _cors_origins:
     )
 
 app.include_router(router, prefix="/api")
+
+
+@app.get("/api/version")
+async def get_version():
+    return {"version": APP_VERSION, "name": "mineru-batch"}
+
 
 # Serve frontend static files (production mode only)
 if not DEV_MODE and FRONTEND_DIST.exists():
