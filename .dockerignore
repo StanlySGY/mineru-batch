@@ -12,3 +12,4 @@ outputs/
 converted/
 dist/
 .claude/
+*.tar.gz

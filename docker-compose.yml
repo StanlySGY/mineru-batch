@@ -1,6 +1,6 @@
 services:
   app:
-    build: .
+    image: mineru-batch:${TAG:-latest}
     ports:
       - "8900:8900"
     volumes:
