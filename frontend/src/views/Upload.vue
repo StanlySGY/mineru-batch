@@ -21,11 +21,17 @@ const uploadEta = ref('')
 const abortController = ref<AbortController | null>(null)
 
 const presetProxy = ref('')
+const configKey = ref(0)
+const configSnapshot = ref<Record<string, any>>({ ...cfg.getCurrentConfig() })
 
 function onPresetChange(name: string) {
   if (!name) return
+  console.debug('[preset] about to load:', name, 'presets in store:', cfg.presets.value)
   cfg.loadPreset(name)
-  console.debug('[preset] loaded:', name)
+  console.debug('[preset] after load, cfg values:', cfg.getCurrentConfig())
+  configSnapshot.value = { ...cfg.getCurrentConfig() }
+  configKey.value++
+  console.debug('[preset] snapshot taken:', JSON.stringify(configSnapshot.value))
   ElMessage.success(`已加载预设 "${name}"`)
 }
 
@@ -281,7 +287,12 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <ConfigPanel />
+      <ConfigPanel
+        :key="configKey"
+        :config="configSnapshot"
+        :node-count="cfg.mineruEndpoints.value.length"
+        :node-enabled="cfg.mineruEndpoints.value.filter((e: any) => e.enabled).length"
+      />
 
       <div v-if="uploading" class="card-section">
         <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
