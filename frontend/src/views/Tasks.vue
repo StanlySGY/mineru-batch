@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
+import { api, type TaskItem, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError } from '../utils/error'
 import { formatTime, formatSize, statusTag } from '../utils/format'
@@ -93,17 +93,6 @@ const previewSearch = ref('')
 const previewSearchMatches = ref(0)
 const previewSearchIdx = ref(0)
 
-function highlightSearch(text: string, query: string): string {
-  if (!query) return text
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const regex = new RegExp(`(${escaped})`, 'gi')
-  let idx = 0
-  return text.replace(regex, () => {
-    idx++
-    return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
-  })
-}
-
 const renderedPreview = ref('')
 const previewRendering = ref(false)
 
@@ -186,24 +175,16 @@ const detailTask = ref<TaskItem | null>(null)
 const cfg = useConfig()
 
 function applyTaskAsPreset(task: TaskItem) {
-  cfg.backend.value = task.backend
-  cfg.mineruApi.value = task.mineru_api
-  cfg.serverUrl.value = task.server_url
-  cfg.parseMethod.value = task.parse_method
-  cfg.langList.value = task.lang_list
-  cfg.formulaEnable.value = task.formula_enable
-  cfg.tableEnable.value = task.table_enable
-  cfg.returnMd.value = task.return_md
-  cfg.returnMiddleJson.value = task.return_middle_json
-  cfg.returnModelOutput.value = task.return_model_output
-  cfg.returnContentList.value = task.return_content_list
-  cfg.returnImages.value = task.return_images
-  cfg.responseFormatZip.value = task.response_format_zip
-  cfg.replaceImageUrl.value = task.replace_image_url
-  cfg.startPageId.value = task.start_page_id
-  cfg.endPageId.value = task.end_page_id
-  cfg.outputFormat.value = task.output_format
-  cfg.timeout.value = task.timeout
+  cfg.applyConfigData({
+    backend: task.backend, mineruApi: task.mineru_api, serverUrl: task.server_url,
+    parseMethod: task.parse_method, langList: task.lang_list,
+    formulaEnable: task.formula_enable, tableEnable: task.table_enable,
+    returnMd: task.return_md, returnMiddleJson: task.return_middle_json,
+    returnModelOutput: task.return_model_output, returnContentList: task.return_content_list,
+    returnImages: task.return_images, responseFormatZip: task.response_format_zip,
+    replaceImageUrl: task.replace_image_url, startPageId: task.start_page_id,
+    endPageId: task.end_page_id, outputFormat: task.output_format, timeout: task.timeout,
+  })
   ElMessage.success('已将任务参数应用为当前配置，请前往上传页重新提交')
 }
 

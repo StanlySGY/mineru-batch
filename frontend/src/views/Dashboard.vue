@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
-import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled, Setting } from '@element-plus/icons-vue'
+import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
-import { formatTime, statusTag } from '../utils/format'
+import { formatTime } from '../utils/format'
 import { useConfig } from '../stores/config'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
@@ -20,6 +20,10 @@ const loading = ref(false)
 const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
 const showWelcome = ref(false)
+function dismissWelcome() {
+  showWelcome.value = false
+  localStorage.setItem('welcome_dismissed', '1')
+}
 let sseClose: (() => void) | null = null
 
 const chartRef = shallowRef<echarts.ECharts | null>(null)
@@ -295,8 +299,8 @@ onUnmounted(() => {
       <p style="margin-top:12px;font-size:13px;color:#909399">提示：如果没有 MinerU 服务，可以先体验界面功能。</p>
     </div>
     <template #footer>
-      <el-button @click="showWelcome = false; localStorage.setItem('welcome_dismissed', '1')">稍后再说</el-button>
-      <el-button type="primary" @click="showWelcome = false; localStorage.setItem('welcome_dismissed', '1'); router.push('/settings')">前往设置</el-button>
+      <el-button @click="dismissWelcome">稍后再说</el-button>
+      <el-button type="primary" @click="dismissWelcome(); router.push('/settings')">前往设置</el-button>
     </template>
   </el-dialog>
 </template>
