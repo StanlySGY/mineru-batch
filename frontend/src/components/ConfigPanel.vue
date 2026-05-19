@@ -1,17 +1,11 @@
 <script setup lang="ts">
-
 const props = defineProps<{
   config: Record<string, any>
-  nodeCount: number
-  nodeEnabled: number
 }>()
 
 const LABELS: Record<string, string> = {
   backend: '后端类型',
-  mineruApi: 'MinerU 地址',
-  serverUrl: '大模型地址',
   parseMethod: '解析方式',
-  langList: '语言',
   outputFormat: '输出格式',
   timeout: '超时',
   formulaEnable: '公式识别',
@@ -26,6 +20,9 @@ const LABELS: Record<string, string> = {
   startPageId: '起始页码',
   endPageId: '结束页码',
   autoConvert: '自动转PDF',
+  mineruApi: 'MinerU API',
+  serverUrl: 'LLM Server',
+  langList: '语言',
 }
 
 function fmt(key: string): string {
@@ -44,20 +41,11 @@ function fmtBool(key: string): boolean {
 <template>
   <div class="config-summary">
     <div class="summary-section">
-      <div class="section-title">核心配置</div>
+      <div class="section-title">核心参数</div>
       <div class="summary-grid">
         <div v-for="k in ['backend','parseMethod','outputFormat','timeout']" :key="k" class="summary-item">
-          <span class="summary-label">{{ LABELS[k] || k }}</span>
+          <span class="summary-label">{{ LABELS[k] }}</span>
           <span class="summary-value">{{ fmt(k) }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">预设节点</span>
-          <span class="summary-value tag-value">
-            <el-tag v-if="nodeCount" size="small" type="info">
-              {{ nodeEnabled }} / {{ nodeCount }} 节点在线
-            </el-tag>
-            <span v-else class="dim">未配置</span>
-          </span>
         </div>
       </div>
     </div>
@@ -68,10 +56,9 @@ function fmtBool(key: string): boolean {
         <el-tag v-for="k in ['formulaEnable','tableEnable','returnMd','returnMiddleJson','returnModelOutput','returnContentList','returnImages','responseFormatZip','replaceImageUrl','autoConvert']" :key="k"
           :type="fmtBool(k) ? 'success' : 'info'"
           :effect="fmtBool(k) ? 'light' : 'plain'"
-          size="small"
-          class="toggle-tag"
+          size="small" class="toggle-tag"
         >
-          {{ LABELS[k] || k }}
+          {{ LABELS[k] }}
         </el-tag>
       </div>
     </div>
@@ -98,10 +85,11 @@ function fmtBool(key: string): boolean {
 
     <div class="config-hint">
       <el-link type="info" :underline="false" @click="$router.push('/settings')" size="small">
-        前往设置页编辑配置 ↗
+        修改配置 → 设置页 ↗
       </el-link>
     </div>
   </div>
+
 </template>
 
 <style scoped>
@@ -112,8 +100,6 @@ function fmtBool(key: string): boolean {
 .summary-item { display: flex; flex-direction: column; gap: 1px; }
 .summary-label { font-size: 11px; color: #909399; }
 .summary-value { font-size: 13px; color: #303133; font-weight: 500; word-break: break-all; }
-.tag-value { line-height: 24px; }
-.dim { color: #c0c4cc; font-style: italic; font-size: 12px; }
 .toggle-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .toggle-tag { font-size: 12px; }
 .sec-address .addr-line { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }

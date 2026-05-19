@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
+import type { MineruEndpoint } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
 import { useRouter } from 'vue-router'
 import type { UploadUserFile, UploadProps } from 'element-plus'
@@ -20,19 +21,21 @@ const uploadSpeed = ref('')
 const uploadEta = ref('')
 const abortController = ref<AbortController | null>(null)
 
-const presetProxy = ref('')
-const configKey = ref(0)
 const configSnapshot = ref<Record<string, any>>({ ...cfg.getCurrentConfig() })
 
-function onPresetChange(name: string) {
-  if (!name) return
-  console.debug('[preset] about to load:', name, 'presets in store:', cfg.presets.value)
-  cfg.loadPreset(name)
-  console.debug('[preset] after load, cfg values:', cfg.getCurrentConfig())
-  configSnapshot.value = { ...cfg.getCurrentConfig() }
-  configKey.value++
-  console.debug('[preset] snapshot taken:', JSON.stringify(configSnapshot.value))
-  ElMessage.success(`已加载预设 "${name}"`)
+// 每批上传独立选择的节点列表，不从 store 持久化
+const selectedEndpoints = ref<MineruEndpoint[]>(
+  cfg.mineruEndpoints.value.filter(e => e.enabled)
+)
+
+function toggleEndpoint(url: string) {
+  const idx = selectedEndpoints.value.findIndex(e => e.url === url)
+  if (idx >= 0) {
+    selectedEndpoints.value.splice(idx, 1)
+  } else {
+    const found = cfg.mineruEndpoints.value.find(e => e.url === url)
+    if (found) selectedEndpoints.value.push({ ...found })
+  }
 }
 
 const totalSize = computed(() => {
@@ -118,8 +121,8 @@ async function handleUpload() {
       backend: cfg.backend.value,
       mineruApi: cfg.mineruApi.value,
       serverUrl: cfg.serverUrl.value,
-      endpoints: cfg.mineruEndpoints.value.filter(e => e.enabled).length > 0
-        ? JSON.stringify(cfg.mineruEndpoints.value.filter(e => e.enabled))
+      endpoints: selectedEndpoints.value.length > 0
+        ? JSON.stringify(selectedEndpoints.value)
         : undefined,
       parseMethod: cfg.parseMethod.value,
       langList: cfg.langList.value,
@@ -281,18 +284,47 @@ onUnmounted(() => {
       <template #header>
         <div class="card-header-row">
           <span class="card-title">解析配置</span>
-          <el-select v-if="cfg.presets.value.length" v-model="presetProxy" placeholder="加载预设" size="small" clearable style="width:140px" @change="onPresetChange">
-            <el-option v-for="p in cfg.presets.value" :key="p.name" :label="p.name" :value="p.name" />
-          </el-select>
+          <el-tag v-if="cfg.mineruEndpoints.value.length" size="small" type="info" effect="plain">
+            {{ cfg.mineruEndpoints.value.length }} 节点
+          </el-tag>
         </div>
       </template>
 
-      <ConfigPanel
-        :key="configKey"
-        :config="configSnapshot"
-        :node-count="cfg.mineruEndpoints.value.length"
-        :node-enabled="cfg.mineruEndpoints.value.filter((e: any) => e.enabled).length"
-      />
+      <!-- 节点选择 -->
+      <div v-if="cfg.mineruEndpoints.value.length" class="card-section">
+        <div class="section-label">选择解析节点</div>
+        <div class="node-list">
+          <div
+            v-for="ep in cfg.mineruEndpoints.value"
+            :key="ep.url"
+            class="node-row"
+            :class="{ selected: selectedEndpoints.some(e => e.url === ep.url) }"
+            @click="toggleEndpoint(ep.url)"
+          >
+            <el-checkbox
+              :model-value="selectedEndpoints.some(e => e.url === ep.url)"
+              size="small"
+              @click.stop
+              @change="toggleEndpoint(ep.url)"
+            />
+            <div class="node-info">
+              <span class="node-url">{{ ep.url }}</span>
+              <span class="node-meta">{{ ep.backend }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="!selectedEndpoints.length" class="form-tip warn">请至少选择一个节点</div>
+      </div>
+      <div v-else class="card-section">
+        <div class="no-nodes">
+          <span>未配置解析节点</span>
+          <el-link type="primary" :underline="false" @click="$router.push('/settings')" size="small">
+            去设置页配置 ↗
+          </el-link>
+        </div>
+      </div>
+
+      <ConfigPanel :config="configSnapshot" />
 
       <div v-if="uploading" class="card-section">
         <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
@@ -343,7 +375,23 @@ onUnmounted(() => {
 .file-remove { flex-shrink: 0; }
 .card-section { margin-top: 12px; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
+.form-tip.warn { color: #e6a23c; }
 .folder-upload-hint { display: flex; justify-content: center; margin-top: 8px; }
+.section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #909399; margin-bottom: 8px; }
+
+.node-list { display: flex; flex-direction: column; gap: 4px; }
+.node-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 6px; cursor: pointer; transition: all 0.15s;
+  border: 1px solid transparent;
+}
+.node-row:hover { background: #f5f7fa; border-color: #e4e7ed; }
+.node-row.selected { background: #ecf5ff; border-color: #409eff; }
+.node-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.node-url { font-size: 12px; color: #303133; font-weight: 500; word-break: break-all; }
+.node-meta { font-size: 11px; color: #909399; }
+
+.no-nodes { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 0; font-size: 13px; color: #909399; }
 
 @media (max-width: 800px) {
   .upload-page { grid-template-columns: 1fr; }
