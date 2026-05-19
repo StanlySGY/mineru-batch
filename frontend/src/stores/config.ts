@@ -100,8 +100,13 @@ function getCurrentConfig(): Record<string, unknown> {
 }
 
 function applyConfigData(data: Record<string, unknown>) {
+  console.debug('[config] applyConfigData:', JSON.stringify(data))
   for (const [k, r] of Object.entries(cfg)) {
-    if (data[k] !== undefined) (r as ReturnType<typeof ref>).value = data[k] as never
+    if (data[k] !== undefined) {
+      const old = (r as ReturnType<typeof ref>).value
+      ;(r as ReturnType<typeof ref>).value = data[k] as never
+      console.debug(`[config]  ${k}: ${JSON.stringify(old)} → ${JSON.stringify(data[k])}`)
+    }
   }
 }
 

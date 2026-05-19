@@ -13,6 +13,7 @@ const emit = defineEmits<{
 
 // 本地深拷贝 reactive 对象——组件实例销毁时一同销毁，不受外部影响
 const local = reactive<Record<string, any>>({ ...props.config })
+console.debug('[ConfigPanel] created with props.config:', { ...props.config }, 'local:', { ...local })
 
 // 用户修改 → emit 给父组件同步 cfg store
 watch(local, (val) => {

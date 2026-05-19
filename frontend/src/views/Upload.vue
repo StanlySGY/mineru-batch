@@ -27,6 +27,8 @@ const presetProxy = ref('')
 function onPresetChange(name: string) {
   if (!name) return
   cfg.loadPreset(name)
+  const after = cfg.getCurrentConfig()
+  console.debug('[preset] loaded:', name, '→ cfg values:', after)
   configKey.value++
   ElMessage.success(`已加载预设 "${name}"`)
 }
