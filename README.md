@@ -17,7 +17,6 @@
 
 ## 界面预览
 
-<!-- 请将截图放在 docs/ 目录下 -->
 <div align="center">
 <img src="docs/dashboard.png" width="80%" alt="Dashboard 概览" />
 <p><em>Dashboard：任务统计、趋势图表、文件类型分布</em></p>

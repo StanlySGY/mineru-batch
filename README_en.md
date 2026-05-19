@@ -17,7 +17,6 @@ English | [中文](./README.md)
 
 ## Screenshots
 
-<!-- Place screenshots in docs/ directory -->
 <div align="center">
 <img src="docs/dashboard.png" width="80%" alt="Dashboard Overview" />
 <p><em>Dashboard: Task statistics, trend charts, file type distribution</em></p>
