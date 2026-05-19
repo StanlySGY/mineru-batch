@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy } from '@element-plus/icons-vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, Timer, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type TaskItem, requestNotificationPermission, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError } from '../utils/error'
 import { formatTime, formatSize, statusTag } from '../utils/format'
+import { useConfig } from '../stores/config'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/core'
@@ -38,19 +39,6 @@ function ensureHljs() {
 
 marked.setOptions({ breaks: true, gfm: true })
 
-const renderedPreview = computed(() => {
-  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') return ''
-  ensureHljs()
-  const html = marked.parse(previewContent.value) as string
-  const clean = DOMPurify.sanitize(html, { ADD_TAGS: ['code', 'pre'], ADD_ATTR: ['class'] })
-  const el = document.createElement('div')
-  el.innerHTML = clean
-  el.querySelectorAll('pre code').forEach(block => {
-    hljs.highlightElement(block as HTMLElement)
-  })
-  return el.innerHTML
-})
-
 const tasks = ref<TaskItem[]>([])
 const total = ref(0)
 const page = ref(1)
@@ -62,9 +50,21 @@ const loading = ref(false)
 const firstLoad = ref(true)
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
+let clockActive = false
 let sseClose: (() => void) | null = null
 
+function startClock() {
+  if (clockActive) return
+  clockActive = true
+  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+}
+function stopClock() {
+  if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  clockActive = false
+}
+
 const selectedIds = ref<number[]>([])
+const tableRef = ref<InstanceType<typeof import('element-plus')['ElTable']> | null>(null)
 
 const statusSummary = computed(() => {
   const s = { pending: 0, processing: 0, completed: 0, failed: 0 }
@@ -89,9 +89,123 @@ const previewFilename = ref('')
 const previewFormat = ref('md')
 const previewTaskId = ref(0)
 const previewMode = ref<'render' | 'source'>('render')
+const previewSearch = ref('')
+const previewSearchMatches = ref(0)
+const previewSearchIdx = ref(0)
+
+function highlightSearch(text: string, query: string): string {
+  if (!query) return text
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${escaped})`, 'gi')
+  let idx = 0
+  return text.replace(regex, () => {
+    idx++
+    return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+  })
+}
+
+const renderedPreview = ref('')
+const previewRendering = ref(false)
+
+watch([previewContent, previewFormat, previewMode, previewSearch, previewSearchIdx], () => {
+  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') {
+    renderedPreview.value = ''
+    return
+  }
+  previewRendering.value = true
+  setTimeout(() => {
+    ensureHljs()
+    const raw = marked.parse(previewContent.value) as string
+    const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre', 'mark'], ADD_ATTR: ['class'] })
+    const el = document.createElement('div')
+    el.innerHTML = clean
+    el.querySelectorAll('pre code').forEach(block => {
+      hljs.highlightElement(block as HTMLElement)
+    })
+    let html = el.innerHTML
+    if (previewSearch.value) {
+      const escaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`(${escaped})`, 'gi')
+      const matches = html.match(regex)
+      previewSearchMatches.value = matches ? matches.length : 0
+      if (previewSearchMatches.value > 0) {
+        let idx = 0
+        html = html.replace(regex, () => {
+          idx++
+          return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+        })
+      }
+    } else {
+      previewSearchMatches.value = 0
+      previewSearchIdx.value = 0
+    }
+    renderedPreview.value = html
+    previewRendering.value = false
+  }, 0)
+}, { immediate: true })
+
+const sourcePreviewHighlighted = computed(() => {
+  if (!previewContent.value) return ''
+  if (!previewSearch.value) return escapeHtml(previewContent.value)
+  const escaped = escapeHtml(previewContent.value)
+  const searchEscaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(`(${searchEscaped})`, 'gi')
+  const matches = escaped.match(regex)
+  previewSearchMatches.value = matches ? matches.length : 0
+  let idx = 0
+  return escaped.replace(regex, () => {
+    idx++
+    return `<mark class="search-highlight${idx === previewSearchIdx.value ? ' active' : ''}">${'$1'}</mark>`
+  })
+})
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function previewSearchNext() {
+  if (!previewSearchMatches.value) return
+  previewSearchIdx.value = previewSearchIdx.value >= previewSearchMatches.value ? 1 : previewSearchIdx.value + 1
+}
+function previewSearchPrev() {
+  if (!previewSearchMatches.value) return
+  previewSearchIdx.value = previewSearchIdx.value <= 1 ? previewSearchMatches.value : previewSearchIdx.value - 1
+}
+
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(previewSearch, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    previewSearchIdx.value = previewSearchMatches.value ? 1 : 0
+  }, 300)
+})
 
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
+
+const cfg = useConfig()
+
+function applyTaskAsPreset(task: TaskItem) {
+  cfg.backend.value = task.backend
+  cfg.mineruApi.value = task.mineru_api
+  cfg.serverUrl.value = task.server_url
+  cfg.parseMethod.value = task.parse_method
+  cfg.langList.value = task.lang_list
+  cfg.formulaEnable.value = task.formula_enable
+  cfg.tableEnable.value = task.table_enable
+  cfg.returnMd.value = task.return_md
+  cfg.returnMiddleJson.value = task.return_middle_json
+  cfg.returnModelOutput.value = task.return_model_output
+  cfg.returnContentList.value = task.return_content_list
+  cfg.returnImages.value = task.return_images
+  cfg.responseFormatZip.value = task.response_format_zip
+  cfg.replaceImageUrl.value = task.replace_image_url
+  cfg.startPageId.value = task.start_page_id
+  cfg.endPageId.value = task.end_page_id
+  cfg.outputFormat.value = task.output_format
+  cfg.timeout.value = task.timeout
+  ElMessage.success('已将任务参数应用为当前配置，请前往上传页重新提交')
+}
 
 async function loadTasks() {
   loading.value = true
@@ -300,7 +414,10 @@ function isLive(row: TaskItem) {
 }
 
 function selectAllCurrent() {
-  selectedIds.value = tasks.value.map(r => r.id)
+  if (!tableRef.value) return
+  tasks.value.forEach(row => {
+    tableRef.value!.toggleRowSelection(row, true)
+  })
 }
 
 function exportCSV() {
@@ -333,23 +450,31 @@ const detailTimeline = computed(() => {
 
 let sseDebounce: ReturnType<typeof setTimeout> | null = null
 
+watch(tasks, (list) => {
+  if (list.some(t => t.status === 'processing')) startClock()
+  else stopClock()
+}, { immediate: true })
+
 onMounted(() => {
   loadTasks()
-  clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
-  sseClose = api.onTaskEvent((evt) => {
-    if (evt.type === 'task_update') {
-      if (sseDebounce) clearTimeout(sseDebounce)
-      sseDebounce = setTimeout(() => loadTasks(), 300)
-      if (evt.status === 'completed' || evt.status === 'failed') {
-        const task = tasks.value.find(t => t.id === evt.task_id)
-        if (task) notifyTaskComplete(task.original_filename, evt.status)
+  sseClose = api.onTaskEvent(
+    (evt) => {
+      if (evt.type === 'task_update') {
+        if (sseDebounce) clearTimeout(sseDebounce)
+        sseDebounce = setTimeout(() => loadTasks(), 300)
+        if (evt.status === 'completed' || evt.status === 'failed') {
+          const task = tasks.value.find(t => t.id === evt.task_id)
+          if (task) notifyTaskComplete(task.original_filename, evt.status)
+        }
       }
-    }
-  })
+    },
+    undefined,
+    () => loadTasks(),
+  )
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => {
-  if (clockTimer) clearInterval(clockTimer)
+  stopClock()
   if (sseDebounce) clearTimeout(sseDebounce)
   if (sseClose) sseClose()
   window.removeEventListener('resize', checkMobile)
@@ -405,8 +530,8 @@ function checkMobile() {
     <span class="summary-spacer" />
     <el-button size="small" text @click="selectAllCurrent">全选当前页</el-button>
   </div>
-  <el-table v-if="!isMobile" :data="tasks" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
-    <el-table-column type="selection" width="40" />
+  <el-table v-if="!isMobile" ref="tableRef" :data="tasks" row-key="id" v-loading="loading" stripe @selection-change="handleSelectionChange" @row-click="showDetail" class="task-table">
+    <el-table-column type="selection" width="40" reserve-selection />
     <el-table-column prop="id" label="ID" width="60" sortable />
     <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>
       <template #default="{ row }">
@@ -508,14 +633,25 @@ function checkMobile() {
 
 <el-dialog v-model="previewVisible" :title="`预览 - ${previewFilename}`" width="75%" top="5vh" destroy-on-close>
   <div v-loading="previewLoading" class="preview-container">
-    <div v-if="previewContent && previewFormat === 'md'" class="preview-toolbar">
-      <el-radio-group v-model="previewMode" size="small">
+    <div class="preview-toolbar">
+      <el-radio-group v-if="previewFormat === 'md'" v-model="previewMode" size="small">
         <el-radio-button value="render">渲染</el-radio-button>
         <el-radio-button value="source">源码</el-radio-button>
       </el-radio-group>
+      <div class="preview-search">
+        <el-input v-model="previewSearch" placeholder="搜索内容" clearable size="small" style="width:180px" :prefix-icon="Search" />
+        <template v-if="previewSearch">
+          <span class="search-count">{{ previewSearchMatches ? `${previewSearchIdx}/${previewSearchMatches}` : '无匹配' }}</span>
+          <el-button size="small" :icon="ArrowUp" circle @click="previewSearchPrev" :disabled="!previewSearchMatches" />
+          <el-button size="small" :icon="ArrowDown" circle @click="previewSearchNext" :disabled="!previewSearchMatches" />
+        </template>
+      </div>
     </div>
-    <div v-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
-    <pre v-else-if="previewContent" class="text-preview">{{ previewContent }}</pre>
+    <div v-if="previewRendering" class="preview-rendering">
+      <el-skeleton :rows="10" animated />
+    </div>
+    <div v-else-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
+    <pre v-else-if="previewContent" class="text-preview" v-html="sourcePreviewHighlighted" />
   </div>
   <template #footer>
     <el-button @click="previewVisible = false">关闭</el-button>
@@ -570,6 +706,7 @@ function checkMobile() {
       <el-button type="primary" :disabled="detailTask.status !== 'completed'" @click="handleDownload(detailTask); detailVisible = false">下载结果</el-button>
       <el-button type="success" :disabled="detailTask.status !== 'completed'" @click="handlePreview(detailTask); detailVisible = false">预览结果</el-button>
       <el-button type="warning" :disabled="detailTask.status !== 'failed' && detailTask.status !== 'completed'" @click="handleRetry(detailTask); detailVisible = false">重试</el-button>
+      <el-button :icon="MagicStick" @click="applyTaskAsPreset(detailTask)">套用参数</el-button>
     </div>
   </template>
 </el-drawer>
@@ -589,7 +726,12 @@ function checkMobile() {
 .card-title { font-weight: 600; }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
-.preview-toolbar { margin-bottom: 12px; display: flex; justify-content: flex-end; }
+.preview-toolbar { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.preview-search { display: flex; align-items: center; gap: 6px; }
+.preview-rendering { padding: 20px 0; }
+.search-count { font-size: 12px; color: #909399; white-space: nowrap; }
+:deep(.search-highlight) { background: #ffe58f; padding: 1px 2px; border-radius: 2px; }
+:deep(.search-highlight.active) { background: #ffc53d; box-shadow: 0 0 0 2px #faad14; }
 .md-preview { line-height: 1.8; color: #303133; }
 .md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 16px; }
 .md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 14px; }

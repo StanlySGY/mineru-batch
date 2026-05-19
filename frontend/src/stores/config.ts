@@ -8,8 +8,6 @@ export interface MineruEndpoint {
   apiKey?: string
 }
 
-type BoolLike = 'true' | 'false'
-
 // Generic localStorage-backed ref factory
 function lsRef<T extends string | number | boolean>(key: string, fallback: T) {
   const raw = localStorage.getItem(key)
@@ -17,7 +15,8 @@ function lsRef<T extends string | number | boolean>(key: string, fallback: T) {
   if (typeof fallback === 'boolean') {
     init = (raw === null ? fallback : raw === 'true') as T
   } else if (typeof fallback === 'number') {
-    init = (raw === null ? fallback : Number(raw)) as T
+    const n = raw === null ? fallback : Number(raw)
+    init = (Number.isNaN(n) ? fallback : n) as T
   } else {
     init = (raw ?? fallback) as T
   }

@@ -107,6 +107,15 @@ async function handleCleanStorage(target: string, label: string) {
   } catch {}
 }
 
+async function handleCleanCompletedSources() {
+  try {
+    await ElMessageBox.confirm('将删除所有已完成任务的原始上传文件（保留输出结果）。此操作不可撤销，是否继续？', '确认清理原文件', { type: 'warning' })
+    const res = await api.cleanCompletedSources()
+    ElMessage.success(`已清理 ${res.count || 0} 个原文件，释放 ${formatStorage(res.freed_bytes || 0)}`)
+    loadStorage()
+  } catch {}
+}
+
 function addEndpoint() {
   cfg.mineruEndpoints.value.push({
     url: 'http://localhost:8086/file_parse',
@@ -373,6 +382,13 @@ const paramTable = [
         <span>磁盘总占用</span>
         <strong>{{ formatStorage(storage.total) }}</strong>
       </div>
+      <el-divider />
+      <div class="gc-actions">
+        <el-button type="warning" @click="handleCleanCompletedSources">
+          清理已完成任务的原文件
+        </el-button>
+        <span class="gc-hint">删除已解析完成任务的原始上传文件，保留输出结果，释放磁盘空间</span>
+      </div>
     </div>
     <el-skeleton v-else :rows="3" animated />
   </el-card>
@@ -438,6 +454,8 @@ const paramTable = [
 .storage-value { color: #303133; font-weight: 500; font-variant-numeric: tabular-nums; }
 .storage-total { display: flex; justify-content: space-between; padding-top: 10px; border-top: 1px solid #ebeef5; font-size: 14px; color: #606266; }
 .storage-total strong { color: #303133; font-size: 16px; }
+.gc-actions { display: flex; align-items: center; gap: 12px; }
+.gc-hint { font-size: 12px; color: #909399; }
 
 @media (max-width: 900px) {
   .settings-page { grid-template-columns: 1fr; }

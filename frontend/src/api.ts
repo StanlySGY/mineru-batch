@@ -15,6 +15,7 @@ http.interceptors.response.use(
       else if (status && status >= 400) {
         const msg = err.response?.data?.detail
         if (msg && typeof msg === 'string') ElMessage.error(msg)
+        else ElMessage.error(`请求失败 (${status})`)
       }
     }
     return Promise.reject(err)
@@ -99,21 +100,41 @@ export interface UploadOptions {
   outputFormat: string
   timeout: number
   autoConvert: boolean
+  webhookUrl?: string
 }
 
-export function requestNotificationPermission(): boolean {
+export async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
   if (Notification.permission === 'denied') return false
-  Notification.requestPermission()
-  return Notification.permission === 'granted'
+  const result = await Notification.requestPermission()
+  return result === 'granted'
 }
+
+let notificationBuffer: { filename: string; status: string }[] = []
+let notificationTimer: ReturnType<typeof setTimeout> | null = null
 
 export function notifyTaskComplete(filename: string, status: string) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return
-  const title = status === 'completed' ? '任务完成' : '任务失败'
-  const body = status === 'completed' ? `${filename} 解析完成` : `${filename} 解析失败`
-  new Notification(title, { body })
+  notificationBuffer.push({ filename, status })
+  if (notificationTimer) clearTimeout(notificationTimer)
+  notificationTimer = setTimeout(() => {
+    if (notificationBuffer.length === 0) return
+    if (notificationBuffer.length === 1) {
+      const item = notificationBuffer[0]
+      const title = item.status === 'completed' ? '任务完成' : '任务失败'
+      const body = item.status === 'completed' ? `${item.filename} 解析完成` : `${item.filename} 解析失败`
+      new Notification(title, { body })
+    } else {
+      const completed = notificationBuffer.filter(n => n.status === 'completed').length
+      const failed = notificationBuffer.filter(n => n.status === 'failed').length
+      new Notification('批量任务完成', {
+        body: `共 ${notificationBuffer.length} 个任务：成功 ${completed}，失败 ${failed}`,
+      })
+    }
+    notificationBuffer = []
+    notificationTimer = null
+  }, 2000)
 }
 
 export const api = {
@@ -132,9 +153,14 @@ export const api = {
     return data as { concurrency: number }
   },
 
-  async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void) {
+  async upload(files: File[], opts: UploadOptions, onProgress?: (p: UploadProgress) => void, signal?: AbortSignal) {
     const form = new FormData()
-    files.forEach((f) => form.append('files', f))
+    const relativePaths: string[] = []
+    files.forEach((f) => {
+      form.append('files', f)
+      relativePaths.push((f as any).webkitRelativePath || f.name)
+    })
+    form.append('relative_paths', JSON.stringify(relativePaths))
     form.append('backend', opts.backend)
     form.append('mineru_api', opts.mineruApi)
     form.append('server_url', opts.serverUrl)
@@ -159,6 +185,7 @@ export const api = {
     let lastLoaded = 0
     let lastTime = startTime
     const { data } = await http.post('/upload', form, {
+      signal,
       onUploadProgress: (e) => {
         if (!onProgress || !e.total) return
         const now = Date.now()
@@ -267,18 +294,45 @@ export const api = {
     return data as { detail: string; counts: Record<string, number> }
   },
 
+  async cleanCompletedSources() {
+    const { data } = await http.post('/storage/clean-sources')
+    return data as { detail: string; count: number; freed_bytes: number }
+  },
+
   async getStatsTrend(days = 7) {
     const { data } = await http.get('/stats/trend', { params: { days } })
     return data as { date: string; completed: number; failed: number }[]
   },
 
+  async getStatsFiletypes() {
+    const { data } = await http.get('/stats/filetypes')
+    return data as { type: string; count: number }[]
+  },
+
+  async getTasksSince(since: string) {
+    const { data } = await http.get('/tasks/since', { params: { since } })
+    return data as { items: TaskItem[] }
+  },
+
   onTaskEvent(
     callback: (event: { type: string; task_id?: number; status?: string; [k: string]: unknown }) => void,
     onStatusChange?: (connected: boolean) => void,
+    onReconnectSync?: (tasks: TaskItem[]) => void,
   ): () => void {
     let reconnectAttempts = 0
+    const MAX_RECONNECT = 30
     let es: EventSource | null = null
     let stopped = false
+    let lastEventTime: string | null = null
+    let wasDisconnected = false
+
+    async function syncMissedTasks() {
+      if (!lastEventTime || !onReconnectSync) return
+      try {
+        const { items } = await api.getTasksSince(lastEventTime)
+        if (items.length > 0) onReconnectSync(items)
+      } catch {}
+    }
 
     function connect() {
       if (stopped) return
@@ -286,20 +340,45 @@ export const api = {
       es.onopen = () => {
         reconnectAttempts = 0
         onStatusChange?.(true)
+        if (wasDisconnected) {
+          syncMissedTasks()
+          wasDisconnected = false
+        }
       }
       es.onmessage = (e) => {
-        try { callback(JSON.parse(e.data)) } catch {}
+        try {
+          const data = JSON.parse(e.data)
+          lastEventTime = new Date().toISOString()
+          callback(data)
+        } catch {}
       }
       es.onerror = () => {
         onStatusChange?.(false)
+        wasDisconnected = true
         es?.close()
         if (stopped) return
+        if (reconnectAttempts >= MAX_RECONNECT) return
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
         reconnectAttempts++
         setTimeout(connect, delay)
       }
     }
     connect()
-    return () => { stopped = true; es?.close() }
+
+    function onVisible() {
+      if (document.visibilityState === 'visible' && (!es || es.readyState === EventSource.CLOSED)) {
+        reconnectAttempts = 0
+        wasDisconnected = true
+        es?.close()
+        connect()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+
+    return () => {
+      stopped = true
+      es?.close()
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   },
 }

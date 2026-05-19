@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
+import { ref, computed, onUnmounted } from 'vue'
+import { UploadFilled, Document, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
 import type { UploadProgress } from '../api'
@@ -19,6 +19,7 @@ const uploadProgress = ref(0)
 const uploadSpeed = ref('')
 const uploadEta = ref('')
 const showAdvanced = ref(false)
+const abortController = ref<AbortController | null>(null)
 
 const presetProxy = ref('')
 
@@ -42,6 +43,52 @@ function clearAllFiles() {
   fileList.value = []
 }
 
+async function readEntry(entry: any, path: string): Promise<File[]> {
+  if (entry.isFile) {
+    return new Promise((resolve) => {
+      entry.file((file: File) => {
+        Object.defineProperty(file, 'webkitRelativePath', { value: path + file.name })
+        resolve([file])
+      })
+    })
+  }
+  if (entry.isDirectory) {
+    const reader = entry.createReader()
+    const entries = await new Promise<any[]>((resolve) => reader.readEntries(resolve))
+    const files: File[] = []
+    for (const e of entries) {
+      const sub = await readEntry(e, path + entry.name + '/')
+      files.push(...sub)
+    }
+    return files
+  }
+  return []
+}
+
+async function handleDrop(e: DragEvent) {
+  const items = e.dataTransfer?.items
+  if (!items) return
+  const droppedFiles: File[] = []
+  for (const item of Array.from(items)) {
+    const entry = (item as any).webkitGetAsEntry?.()
+    if (entry) {
+      const files = await readEntry(entry, '')
+      droppedFiles.push(...files)
+    }
+  }
+  if (!droppedFiles.length) return
+  const allowed = droppedFiles.filter(f => {
+    const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+    return ALLOWED_EXTENSIONS.includes(ext)
+  })
+  if (!allowed.length) return ElMessage.warning('没有可识别的文件')
+  if (fileList.value.length + allowed.length > 200) return ElMessage.warning('最多 200 个文件')
+  for (const f of allowed) {
+    fileList.value.push({ name: f.webkitRelativePath || f.name, raw: f } as any)
+  }
+  ElMessage.success(`已添加 ${allowed.length} 个文件`)
+}
+
 const handleExceed: UploadProps['onExceed'] = () => {
   ElMessage.warning('最多上传 50 个文件')
 }
@@ -61,53 +108,93 @@ async function handleUpload() {
   uploadProgress.value = 0
   uploadSpeed.value = ''
   uploadEta.value = ''
+  abortController.value = new AbortController()
+
+  const opts = {
+    backend: cfg.backend.value,
+    mineruApi: cfg.mineruApi.value,
+    serverUrl: cfg.serverUrl.value,
+    endpoints: cfg.mineruEndpoints.value.filter(e => e.enabled).length > 0
+      ? JSON.stringify(cfg.mineruEndpoints.value.filter(e => e.enabled))
+      : undefined,
+    parseMethod: cfg.parseMethod.value,
+    langList: cfg.langList.value,
+    formulaEnable: cfg.formulaEnable.value,
+    tableEnable: cfg.tableEnable.value,
+    returnMd: cfg.returnMd.value,
+    returnMiddleJson: cfg.returnMiddleJson.value,
+    returnModelOutput: cfg.returnModelOutput.value,
+    returnContentList: cfg.returnContentList.value,
+    returnImages: cfg.returnImages.value,
+    responseFormatZip: cfg.responseFormatZip.value,
+    replaceImageUrl: cfg.replaceImageUrl.value,
+    startPageId: cfg.startPageId.value,
+    endPageId: cfg.endPageId.value,
+    outputFormat: cfg.outputFormat.value,
+    timeout: cfg.timeout.value,
+    autoConvert: cfg.autoConvert.value,
+    webhookUrl: cfg.webhookUrl?.value || undefined,
+  }
+
+  const MAX_CONCURRENT = 3
+  const queue = [...rawFiles]
+  const totalFiles = queue.length
+  let completed = 0
+  let failed = 0
+  const allTasks: any[] = []
+
+  async function uploadOne(file: File): Promise<void> {
+    try {
+      const res = await api.upload([file], opts, undefined, abortController.value?.signal)
+      allTasks.push(...res.tasks)
+      completed++
+    } catch (e: any) {
+      if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') throw e
+      failed++
+      completed++
+      ElMessage.error(`"${file.name}" 上传失败: ${e?.response?.data?.detail || e?.message || '未知错误'}`)
+    }
+    uploadProgress.value = Math.round((completed / totalFiles) * 100)
+  }
+
   try {
-    const enabledEndpoints = cfg.mineruEndpoints.value.filter(e => e.enabled)
-    const endpointsStr = enabledEndpoints.length > 0 ? JSON.stringify(enabledEndpoints) : undefined
-    const res = await api.upload(rawFiles, {
-      backend: cfg.backend.value,
-      mineruApi: cfg.mineruApi.value,
-      serverUrl: cfg.serverUrl.value,
-      endpoints: endpointsStr,
-      parseMethod: cfg.parseMethod.value,
-      langList: cfg.langList.value,
-      formulaEnable: cfg.formulaEnable.value,
-      tableEnable: cfg.tableEnable.value,
-      returnMd: cfg.returnMd.value,
-      returnMiddleJson: cfg.returnMiddleJson.value,
-      returnModelOutput: cfg.returnModelOutput.value,
-      returnContentList: cfg.returnContentList.value,
-      returnImages: cfg.returnImages.value,
-      responseFormatZip: cfg.responseFormatZip.value,
-      replaceImageUrl: cfg.replaceImageUrl.value,
-      startPageId: cfg.startPageId.value,
-      endPageId: cfg.endPageId.value,
-      outputFormat: cfg.outputFormat.value,
-      timeout: cfg.timeout.value,
-      autoConvert: cfg.autoConvert.value,
-    }, (p: UploadProgress) => {
-      uploadProgress.value = p.pct
-      uploadSpeed.value = p.speed > 1024 * 1024 ? `${(p.speed / 1024 / 1024).toFixed(1)} MB/s` : `${(p.speed / 1024).toFixed(0)} KB/s`
-      uploadEta.value = p.eta > 60 ? `约 ${Math.ceil(p.eta / 60)} 分钟` : p.eta > 0 ? `约 ${Math.ceil(p.eta)} 秒` : ''
-    })
-    ElMessage.success(`已提交 ${res.tasks.length} 个解析任务`)
-    requestNotificationPermission()
-    fileList.value = []
-    router.push('/tasks')
+    const workers: Promise<void>[] = []
+    for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) {
+      workers.push((async () => {
+        while (queue.length) {
+          const file = queue.shift()
+          if (!file) break
+          if (abortController.value?.signal.aborted) break
+          await uploadOne(file)
+        }
+      })())
+    }
+    await Promise.all(workers)
+
+    if (completed > 0) {
+      const msg = failed > 0
+        ? `完成 ${completed} 个，失败 ${failed} 个`
+        : `已提交 ${allTasks.length} 个解析任务`
+      ElMessage.success(msg)
+      requestNotificationPermission()
+      fileList.value = []
+      router.push('/tasks')
+    }
   } catch (e: any) {
-    const detail = e?.response?.data
-    if (detail?.detail) {
-      const msgs = Array.isArray(detail.detail)
-        ? detail.detail.map((d: any) => `${d.loc?.join('.') || ''}: ${d.msg}`).join('; ')
-        : JSON.stringify(detail.detail)
-      ElMessage.error(`参数错误: ${msgs}`)
-    } else {
-      ElMessage.error(e?.response?.data?.detail || e?.message || '上传失败')
+    if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {
+      ElMessage.info('上传已取消')
     }
   } finally {
     uploading.value = false
+    abortController.value = null
   }
 }
+
+onUnmounted(() => {
+  if (uploading.value && abortController.value) {
+    abortController.value.abort()
+  }
+})
 </script>
 
 <template>
@@ -121,23 +208,25 @@ async function handleUpload() {
         </div>
       </template>
 
-      <el-upload
-        v-model:file-list="fileList"
-        multiple
-        :auto-upload="false"
-        :limit="50"
-        :accept="ALLOWED_EXTENSIONS"
-        :on-exceed="handleExceed"
-        :before-upload="beforeUpload"
-        drag
-        class="upload-dragger"
-      >
-        <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
-        <div class="el-upload__text">拖拽文件到此处，或 <em>点击选择</em></div>
-        <template #tip>
-          <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB</div>
-        </template>
-      </el-upload>
+      <div class="upload-drop-zone" @drop.prevent="handleDrop" @dragover.prevent>
+        <el-upload
+          v-model:file-list="fileList"
+          multiple
+          :auto-upload="false"
+          :limit="200"
+          :accept="ALLOWED_EXTENSIONS"
+          :on-exceed="handleExceed"
+          :before-upload="beforeUpload"
+          drag
+          class="upload-dragger"
+        >
+          <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
+          <div class="el-upload__text">拖拽文件或文件夹到此处，或 <em>点击选择</em></div>
+          <template #tip>
+            <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB，可直接拖拽文件夹</div>
+          </template>
+        </el-upload>
+      </div>
 
       <div class="folder-upload-hint">
         <el-upload
@@ -194,7 +283,13 @@ async function handleUpload() {
       </template>
 
       <el-form label-position="top" class="config-form">
-        <el-form-item label="后端类型 (backend)">
+        <el-form-item>
+          <template #label>
+            后端类型 (backend)
+            <el-tooltip content="hybrid: 纯文本偏多时更快；vlm: 含大量图片和复杂版式时效果更好" placement="top">
+              <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-select v-model="cfg.backend.value">
             <el-option value="hybrid-http-client" label="hybrid-http-client" />
             <el-option value="vlm-http-client" label="vlm-http-client" />
@@ -209,7 +304,13 @@ async function handleUpload() {
           <el-input v-model="cfg.serverUrl.value" />
         </el-form-item>
 
-        <el-form-item label="解析方式 (parse_method)">
+        <el-form-item>
+          <template #label>
+            解析方式 (parse_method)
+            <el-tooltip content="auto: 自动选择；ocr: 强制OCR识别；txt: 纯文本提取" placement="top">
+              <el-icon style="vertical-align: middle; margin-left: 4px"><QuestionFilled /></el-icon>
+            </el-tooltip>
+          </template>
           <el-select v-model="cfg.parseMethod.value">
             <el-option value="auto" label="auto" />
             <el-option value="ocr" label="ocr" />
@@ -259,7 +360,7 @@ async function handleUpload() {
 
         <el-form-item v-if="uploading">
           <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
-          <div class="form-tip">{{ uploadProgress < 100 ? `上传中... ${uploadSpeed} ${uploadEta}` : '上传完成，服务端处理中...' }}</div>
+          <div class="form-tip">上传中... {{ uploadProgress < 100 ? `${uploadProgress}%` : '上传完成，服务端处理中...' }}</div>
         </el-form-item>
 
         <el-form-item>
@@ -285,6 +386,12 @@ async function handleUpload() {
 .config-form { display: flex; flex-direction: column; gap: 2px; }
 .submit-btn { width: 100%; margin-top: 8px; }
 .upload-dragger :deep(.el-upload-dragger) { padding: 40px 0; border-radius: 8px; }
+.upload-drop-zone { position: relative; }
+.upload-drop-zone::after {
+  content: ''; position: absolute; inset: 0; border-radius: 8px;
+  border: 2px dashed transparent; transition: border-color 0.2s; pointer-events: none;
+}
+.upload-drop-zone:hover::after { border-color: #409eff; }
 .card-header-row { display: flex; align-items: center; gap: 10px; }
 .card-title { font-weight: 600; }
 

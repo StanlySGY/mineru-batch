@@ -16,7 +16,8 @@ const firstLoad = ref(true)
 const expandedTaskIds = ref<Set<number>>(new Set())
 const expandedLogId = ref<number | null>(null)
 const allExpanded = ref(false)
-let timer: ReturnType<typeof setInterval> | null = null
+let sseDebounce: ReturnType<typeof setTimeout> | null = null
+let sseClose: (() => void) | null = null
 
 const levelSummary = computed(() => {
   const s = { info: 0, warn: 0, error: 0 }
@@ -118,15 +119,17 @@ const levelColor: Record<string, string> = {
   info: '#67c23a', warn: '#e6a23c', error: '#f56c6c',
 }
 
-function hasActiveLogs() {
-  return groups.value.some(g => g.status === 'processing' || g.status === 'pending')
-}
-
 onMounted(() => {
   loadLogs()
-  timer = setInterval(() => { if (hasActiveLogs()) loadLogs() }, 8000)
+  sseClose = api.onTaskEvent(() => {
+    if (sseDebounce) clearTimeout(sseDebounce)
+    sseDebounce = setTimeout(() => loadLogs(), 500)
+  })
 })
-onUnmounted(() => { if (timer) clearInterval(timer) })
+onUnmounted(() => {
+  if (sseDebounce) clearTimeout(sseDebounce)
+  if (sseClose) sseClose()
+})
 </script>
 
 <template>
@@ -203,7 +206,16 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
   </div>
 
   <div class="pagination-row" v-if="total > size">
-    <el-pagination background layout="prev, pager, next" :total="total" :page-size="size" :current-page="page" @current-change="handlePageChange" />
+    <el-pagination
+      background
+      layout="total, sizes, prev, pager, next, jumper"
+      :total="total"
+      :page-sizes="[20, 50, 100]"
+      :page-size="size"
+      :current-page="page"
+      @current-change="handlePageChange"
+      @size-change="(s: number) => { size = s; page = 1; loadLogs() }"
+    />
   </div>
 </el-card>
 </template>

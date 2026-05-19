@@ -2,16 +2,17 @@ import os
 import subprocess
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from models import init_db, SessionLocal, FileTask, TaskStatus
-from routes import router
+from routes import router, _notify_task_change, add_log
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
@@ -69,7 +70,35 @@ async def lifespan(app: FastAPI):
             from routes import _process_task
             asyncio.create_task(_process_task(t.id))
     asyncio.get_event_loop().call_later(1.0, lambda: asyncio.ensure_future(_requeue_stale()))
+
+    async def _check_task_timeouts():
+        while True:
+            await asyncio.sleep(30)
+            db = SessionLocal()
+            try:
+                now = datetime.now(timezone.utc)
+                stuck = db.query(FileTask).filter(
+                    FileTask.status == TaskStatus.PROCESSING,
+                    FileTask.started_at.isnot(None),
+                ).all()
+                for task in stuck:
+                    elapsed = (now - task.started_at).total_seconds()
+                    timeout = task.timeout or 600
+                    if elapsed > timeout + 60:
+                        task.status = TaskStatus.FAILED
+                        task.error_message = f"任务超时（已运行 {int(elapsed)}s，超时 {timeout}s）"
+                        task.completed_at = now
+                        db.commit()
+                        add_log(f"任务超时自动取消", task_id=task.id, level="warn",
+                                detail=f"elapsed={int(elapsed)}s timeout={timeout}s")
+                        _notify_task_change(task.id, "failed", error_message=task.error_message)
+            except Exception:
+                pass
+            finally:
+                db.close()
+    timeout_task = asyncio.create_task(_check_task_timeouts())
     yield
+    timeout_task.cancel()
 
 
 app = FastAPI(title="MinerU Batch Processor", lifespan=lifespan)
@@ -88,23 +117,22 @@ app.include_router(router, prefix="/api")
 
 # Serve frontend static files (production mode only)
 if not DEV_MODE and FRONTEND_DIST.exists():
-    # Assets with hash filenames — cache 1 year
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets", max_age=31536000), name="assets")
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
     # Other static files in dist root (favicon, icons, etc.)
     for f in FRONTEND_DIST.iterdir():
         if f.is_file() and f.name != "index.html":
-            path = f"/{f.name}"
+            fp = f
 
-            def _make_static(filepath: Path):
-                async def _serve(request: Request):
-                    return FileResponse(filepath, headers={"Cache-Control": "public, max-age=86400"})
-                return _serve
-            app.get(path)(_make_static(f))
+            async def _serve_static(_request: Request, filepath: Path = fp):
+                return FileResponse(filepath, headers={"Cache-Control": "public, max-age=86400"})
+            app.get(f"/{f.name}")(_serve_static)
 
     # SPA fallback — no cache (always serve latest index.html)
     @app.get("/{full_path:path}")
     async def spa_fallback(request: Request, full_path: str):
         if full_path.startswith("api/"):
-            return
+            return Response(status_code=404)
         return FileResponse(FRONTEND_DIST / "index.html", headers={"Cache-Control": "no-cache"})

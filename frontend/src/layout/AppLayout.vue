@@ -34,10 +34,14 @@ function navigate(path: string) {
   if (isMobile.value) collapsed.value = true
 }
 
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
 let sseClose: (() => void) | null = null
 onMounted(() => {
   checkMobile()
-  window.addEventListener('resize', checkMobile)
+  window.addEventListener('resize', () => {
+    if (resizeTimer) clearTimeout(resizeTimer)
+    resizeTimer = setTimeout(checkMobile, 150)
+  })
   api.getConcurrency().then(r => concurrency.value = r.concurrency).catch(() => {})
   sseClose = api.onTaskEvent(
     () => {},
@@ -46,6 +50,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   if (sseClose) sseClose()
+  if (resizeTimer) clearTimeout(resizeTimer)
   window.removeEventListener('resize', checkMobile)
 })
 </script>
