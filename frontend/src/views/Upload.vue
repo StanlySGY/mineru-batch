@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, nextTick } from 'vue'
 import { UploadFilled, Document, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
@@ -21,11 +21,13 @@ const showAdvanced = ref(false)
 const abortController = ref<AbortController | null>(null)
 
 const presetProxy = ref('')
+const formKey = ref(0)
 
 function onPresetChange(name: string) {
   if (name) {
     cfg.loadPreset(name)
-    ElMessage.success(`已加载预设 "${name}"`)
+    formKey.value++
+    nextTick(() => ElMessage.success(`已加载预设 "${name}"`))
   }
   presetProxy.value = ''
 }
@@ -283,7 +285,7 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <el-form label-position="top" class="config-form">
+      <el-form :key="formKey" label-position="top" class="config-form">
         <el-form-item>
           <template #label>
             后端类型 (backend)
