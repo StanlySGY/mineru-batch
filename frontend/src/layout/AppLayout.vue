@@ -8,6 +8,7 @@ import { api } from '../api'
 
 const router = useRouter()
 const route = useRoute()
+const appVersion = __APP_VERSION__
 const collapsed = ref(false)
 const sseConnected = ref(false)
 const concurrency = ref(0)
@@ -90,7 +91,7 @@ onUnmounted(() => {
 
     <div class="sidebar-footer">
       <transition name="fade">
-        <div v-show="!collapsed" class="sidebar-version">v{{ __APP_VERSION__ }}</div>
+        <div v-show="!collapsed" class="sidebar-version">v{{ appVersion }}</div>
       </transition>
       <div class="nav-item collapse-toggle" @click="collapsed = !collapsed">
         <el-icon :size="18">

@@ -3,7 +3,6 @@ import { ref, computed, onUnmounted } from 'vue'
 import { UploadFilled, Document, Delete, QuestionFilled } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
-import type { UploadProgress } from '../api'
 import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
@@ -110,30 +109,32 @@ async function handleUpload() {
   uploadEta.value = ''
   abortController.value = new AbortController()
 
-  const opts = {
-    backend: cfg.backend.value,
-    mineruApi: cfg.mineruApi.value,
-    serverUrl: cfg.serverUrl.value,
-    endpoints: cfg.mineruEndpoints.value.filter(e => e.enabled).length > 0
-      ? JSON.stringify(cfg.mineruEndpoints.value.filter(e => e.enabled))
-      : undefined,
-    parseMethod: cfg.parseMethod.value,
-    langList: cfg.langList.value,
-    formulaEnable: cfg.formulaEnable.value,
-    tableEnable: cfg.tableEnable.value,
-    returnMd: cfg.returnMd.value,
-    returnMiddleJson: cfg.returnMiddleJson.value,
-    returnModelOutput: cfg.returnModelOutput.value,
-    returnContentList: cfg.returnContentList.value,
-    returnImages: cfg.returnImages.value,
-    responseFormatZip: cfg.responseFormatZip.value,
-    replaceImageUrl: cfg.replaceImageUrl.value,
-    startPageId: cfg.startPageId.value,
-    endPageId: cfg.endPageId.value,
-    outputFormat: cfg.outputFormat.value,
-    timeout: cfg.timeout.value,
-    autoConvert: cfg.autoConvert.value,
-    webhookUrl: cfg.webhookUrl?.value || undefined,
+  function buildUploadOpts() {
+    return {
+      backend: cfg.backend.value,
+      mineruApi: cfg.mineruApi.value,
+      serverUrl: cfg.serverUrl.value,
+      endpoints: cfg.mineruEndpoints.value.filter(e => e.enabled).length > 0
+        ? JSON.stringify(cfg.mineruEndpoints.value.filter(e => e.enabled))
+        : undefined,
+      parseMethod: cfg.parseMethod.value,
+      langList: cfg.langList.value,
+      formulaEnable: cfg.formulaEnable.value,
+      tableEnable: cfg.tableEnable.value,
+      returnMd: cfg.returnMd.value,
+      returnMiddleJson: cfg.returnMiddleJson.value,
+      returnModelOutput: cfg.returnModelOutput.value,
+      returnContentList: cfg.returnContentList.value,
+      returnImages: cfg.returnImages.value,
+      responseFormatZip: cfg.responseFormatZip.value,
+      replaceImageUrl: cfg.replaceImageUrl.value,
+      startPageId: cfg.startPageId.value,
+      endPageId: cfg.endPageId.value,
+      outputFormat: cfg.outputFormat.value,
+      timeout: cfg.timeout.value,
+      autoConvert: cfg.autoConvert.value,
+      webhookUrl: (cfg as any).webhookUrl?.value || undefined,
+    } as import('../api').UploadOptions
   }
 
   const MAX_CONCURRENT = 3
@@ -145,7 +146,7 @@ async function handleUpload() {
 
   async function uploadOne(file: File): Promise<void> {
     try {
-      const res = await api.upload([file], opts, undefined, abortController.value?.signal)
+      const res = await api.upload([file], buildUploadOpts(), undefined, abortController.value?.signal)
       allTasks.push(...res.tasks)
       completed++
     } catch (e: any) {

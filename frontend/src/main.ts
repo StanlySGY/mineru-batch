@@ -8,7 +8,7 @@ import router from './router'
 
 const app = createApp(App)
 
-app.config.errorHandler = (err, instance, info) => {
+app.config.errorHandler = (err, _instance, info) => {
   console.error(`[Vue Error] ${info}`, err)
   ElMessage.error('页面渲染异常，请刷新重试')
 }

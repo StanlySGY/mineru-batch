@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { Delete, Refresh, ArrowDown, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type LogGroup } from '../api'
-import { formatTime, statusTag } from '../utils/format'
+import { formatTime } from '../utils/format'
 
 const groups = ref<LogGroup[]>([])
 const total = ref(0)
