@@ -5,6 +5,17 @@
 #   2. VERSION 文件
 #   3. docker-build.sh 中的版本号
 # ──────────────────────────────────────────────
+#
+# 切换 PostgreSQL：取消下方注释，注释掉 app 中的 DATABASE_URL
+#   postgres:
+#     image: postgres:16-alpine
+#     environment:
+#       POSTGRES_DB: mineru
+#       POSTGRES_USER: mineru
+#       POSTGRES_PASSWORD: mineru_pass
+#     volumes:
+#       - pgdata:/var/lib/postgresql/data
+#     restart: unless-stopped
 
 services:
   app:
@@ -15,7 +26,10 @@ services:
       - data:/data
     environment:
       - TZ=Asia/Shanghai
+      # PostgreSQL 示例（取消注释启用）:
+      # - DATABASE_URL=postgresql://mineru:mineru_pass@postgres:5432/mineru
     restart: unless-stopped
 
 volumes:
   data:
+  # pgdata:

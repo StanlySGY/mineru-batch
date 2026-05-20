@@ -5,38 +5,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type TaskItem, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
-import { translateError } from '../utils/error'
+import { translateError, getErrorSuggestion } from '../utils/error'
 import { formatTime, formatSize, statusTag } from '../utils/format'
 import { useConfig } from '../stores/config'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import hljs from 'highlight.js/lib/core'
-import javascript from 'highlight.js/lib/languages/javascript'
-import python from 'highlight.js/lib/languages/python'
-import json from 'highlight.js/lib/languages/json'
-import bash from 'highlight.js/lib/languages/bash'
-import xml from 'highlight.js/lib/languages/xml'
-import css from 'highlight.js/lib/languages/css'
-import yaml from 'highlight.js/lib/languages/yaml'
-import sql from 'highlight.js/lib/languages/sql'
-import plaintext from 'highlight.js/lib/languages/plaintext'
-
-let hljsReady = false
-function ensureHljs() {
-  if (hljsReady) return
-  hljs.registerLanguage('javascript', javascript)
-  hljs.registerLanguage('js', javascript)
-  hljs.registerLanguage('python', python)
-  hljs.registerLanguage('json', json)
-  hljs.registerLanguage('bash', bash)
-  hljs.registerLanguage('xml', xml)
-  hljs.registerLanguage('html', xml)
-  hljs.registerLanguage('css', css)
-  hljs.registerLanguage('yaml', yaml)
-  hljs.registerLanguage('sql', sql)
-  hljs.registerLanguage('plaintext', plaintext)
-  hljsReady = true
-}
+import { hljs, ensureAllCommonLanguages } from '../utils/highlight'
 
 marked.setOptions({ breaks: true, gfm: true })
 
@@ -106,8 +80,8 @@ watch([previewContent, previewFormat, previewMode, previewSearch, previewSearchI
     return
   }
   previewRendering.value = true
-  setTimeout(() => {
-    ensureHljs()
+  setTimeout(async () => {
+    await ensureAllCommonLanguages()
     const raw = marked.parse(previewContent.value) as string
     const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre', 'mark'], ADD_ATTR: ['class'] })
     const el = document.createElement('div')
@@ -732,6 +706,9 @@ function checkMobile() {
     <template v-if="detailTask.error_message">
       <el-divider content-position="left">错误信息</el-divider>
       <div class="detail-error"><pre>{{ translateError(detailTask.error_message) }}</pre></div>
+      <div v-if="getErrorSuggestion(detailTask.error_message)" class="detail-suggestion">
+        💡 {{ getErrorSuggestion(detailTask.error_message) }}
+      </div>
     </template>
 
     <div class="detail-actions">
@@ -847,6 +824,7 @@ function checkMobile() {
 .param-long { font-size: 12px; }
 .detail-error { background: #fef0f0; border-radius: 6px; padding: 12px; }
 .detail-error pre { margin: 0; font-size: 12px; color: #c0392b; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+.detail-suggestion { background: #ecf5ff; border-radius: 6px; padding: 10px 12px; margin-top: 8px; font-size: 13px; color: #409eff; line-height: 1.5; }
 .detail-actions { display: flex; gap: 8px; margin-top: 20px; }
 .mobile-card-list { display: flex; flex-direction: column; gap: 10px; }
 .mobile-task-card {

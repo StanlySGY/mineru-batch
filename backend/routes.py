@@ -24,8 +24,14 @@ from models import (
     FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, AppSetting,
     get_db, SessionLocal, add_log,
 )
+from error_codes import ErrorCode, with_code
 
 router = APIRouter()
+
+# 限流：上传接口 10次/分钟
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+_limiter = Limiter(key_func=get_remote_address)
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs"))
@@ -45,8 +51,8 @@ _cancel_lock = threading.Lock()
 _max_concurrency = 5
 _SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.path.normpath(CONVERT_DIR))
 
-# 工作池：避免 create_task 风暴
-_task_queue: asyncio.Queue[int] = asyncio.Queue()
+# 工作池：避免 create_task 风暴（优先级队列，值越小优先级越高）
+_task_queue: asyncio.PriorityQueue[tuple[int, int]] = asyncio.PriorityQueue()
 _workers: list[asyncio.Task] = []
 
 DEFAULT_SETTINGS = {
@@ -211,13 +217,14 @@ def set_concurrency(n: int):
     _task_semaphore = asyncio.Semaphore(_max_concurrency)
 
 
-def _enqueue_task(task_id: int):
-    _task_queue.put_nowait(task_id)
+def _enqueue_task(task_id: int, priority: int = 0):
+    # 优先级反转：priority 2=紧急 → queue 值 0（最高），priority 0=普通 → queue 值 2（最低）
+    _task_queue.put_nowait((2 - priority, task_id))
 
 
 async def _worker_loop(worker_id: int):
     while True:
-        task_id = await _task_queue.get()
+        _, task_id = await _task_queue.get()
         try:
             await _process_task(task_id)
         except Exception:
@@ -289,7 +296,7 @@ def _pick_endpoint(endpoints: list[dict]) -> dict:
     global _rr_counter
     enabled = [e for e in endpoints if e.get("enabled", True)]
     if not enabled:
-        raise RuntimeError("没有可用的 MinerU 服务节点")
+        raise RuntimeError(with_code(ErrorCode.NO_AVAILABLE_NODE, "没有可用的 MinerU 服务节点"))
     with _rr_lock:
         idx = _rr_counter % len(enabled)
         _rr_counter += 1
@@ -332,7 +339,7 @@ def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
             env={**os.environ, "HOME": "/tmp"}
         )
         if result.returncode != 0:
-            raise RuntimeError(f"LibreOffice exit {result.returncode}: {result.stderr[:500] or result.stdout[:500]}")
+            raise RuntimeError(with_code(ErrorCode.DOC_CONVERT_FAIL, f"LibreOffice exit {result.returncode}: {result.stderr[:500] or result.stdout[:500]}"))
         base = os.path.splitext(os.path.basename(input_path))[0]
         pdf_path = os.path.join(out_dir, f"{base}.pdf")
         if not os.path.exists(pdf_path):
@@ -343,11 +350,11 @@ def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
                         pdf_path = cand
                         break
         if not os.path.exists(pdf_path):
-            raise RuntimeError("PDF 文件未生成")
+            raise RuntimeError(with_code(ErrorCode.PDF_NOT_GENERATED, "PDF 文件未生成"))
         add_log(f"转换完成: {os.path.basename(pdf_path)}", task_id=task_id)
         return pdf_path
     except subprocess.TimeoutExpired:
-        raise RuntimeError("LibreOffice 转换超时(120s)")
+        raise RuntimeError(with_code(ErrorCode.DOC_CONVERT_TIMEOUT, "LibreOffice 转换超时(120s)"))
     except Exception as e:
         add_log(f"转换失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
         raise
@@ -411,7 +418,7 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
                     level="info" if resp.status_code == 200 else "error",
                     detail=f"status={resp.status_code}\ncontent_type={resp.headers.get('content-type','')}\nbody_preview={resp.text[:2000] if resp.headers.get('content-type','').startswith('application/json') else '(binary)'}")
             if resp.status_code != 200:
-                raise RuntimeError(f"MinerU API error {resp.status_code}: {resp.text[:500]}")
+                raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, f"MinerU API error {resp.status_code}: {resp.text[:500]}"))
             content_type = resp.headers.get("content-type", "")
             if "application/zip" in content_type or "application/octet-stream" in content_type:
                 add_log(f"MinerU 返回 ZIP 流，保存中...", task_id=task_id)
@@ -446,13 +453,13 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
             return resp.json()
     except httpx.ConnectError as e:
         add_log(f"连接 MinerU 失败", task_id=task_id, level="error", detail=str(e))
-        raise
+        raise RuntimeError(with_code(ErrorCode.MINERU_CONNECT_FAIL, f"连接 MinerU 失败: {e}"))
     except httpx.TimeoutException as e:
         add_log(f"调用 MinerU 超时({timeout}s)", task_id=task_id, level="error", detail=str(e))
-        raise
+        raise RuntimeError(with_code(ErrorCode.MINERU_TIMEOUT, f"调用 MinerU 超时({timeout}s): {e}"))
     except json.JSONDecodeError as e:
         add_log(f"MinerU 响应非 JSON", task_id=task_id, level="error", detail=f"{e}\nbody_preview={resp.text[:500]}")
-        raise
+        raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, f"MinerU 响应非 JSON: {e}"))
     except Exception as e:
         add_log(f"调用 MinerU 异常: {type(e).__name__}", task_id=task_id, level="error", detail=traceback.format_exc())
         raise
@@ -667,11 +674,14 @@ async def get_stats(db: Session = Depends(get_db)):
         .all()
     )
     status_map = {s.value: c for s, c in by_status}
-    avg_row = db.execute(text(
-        "SELECT AVG(STRFTIME('%s', completed_at) - STRFTIME('%s', started_at)) * 1000 "
-        "FROM file_tasks WHERE status = 'completed' AND started_at IS NOT NULL AND completed_at IS NOT NULL"
-    )).scalar()
-    avg_duration_ms = float(avg_row) if avg_row else 0
+    # 用 Python 层面计算平均耗时，兼容 SQLite 和 PostgreSQL
+    completed_tasks = db.query(FileTask.started_at, FileTask.completed_at).filter(
+        FileTask.status == TaskStatus.COMPLETED,
+        FileTask.started_at.isnot(None),
+        FileTask.completed_at.isnot(None),
+    ).all()
+    durations = [(c - s).total_seconds() * 1000 for s, c in completed_tasks if c and s]
+    avg_duration_ms = sum(durations) / len(durations) if durations else 0
     return {
         "total": total,
         "pending": status_map.get("pending", 0),
@@ -752,6 +762,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp",
 
 
 @router.post("/upload")
+@_limiter.limit("10/minute")
 async def upload_files(
     files: list[UploadFile] = File(...),
     backend: str = Form("hybrid-http-client"),
@@ -779,6 +790,7 @@ async def upload_files(
     api_key: str = Form(None),
     batch_id: str = Form(None),
     batch_name: str = Form(None),
+    priority: str = Form("0"),
     db: Session = Depends(get_db),
 ):
     if output_format not in ("md", "txt", "html"):
@@ -791,8 +803,9 @@ async def upload_files(
         _start_page = int(start_page_id)
         _end_page = int(end_page_id)
         _timeout = int(timeout)
+        _priority = max(0, min(2, int(priority)))
     except ValueError:
-        raise HTTPException(400, "start_page_id, end_page_id, timeout must be integers")
+        raise HTTPException(400, "start_page_id, end_page_id, timeout, priority must be integers")
     if _timeout < 10 or _timeout > 7200:
         raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
     if _start_page < 0:
@@ -865,6 +878,7 @@ async def upload_files(
             webhook_url=webhook_url,
             batch_id=upload_batch_id,
             batch_name=upload_batch_name,
+            priority=_priority,
         )
         db.add(task)
         db.commit()
@@ -881,7 +895,7 @@ async def upload_files(
         task = db.query(FileTask).filter(FileTask.id == tid).first()
         if _is_doc_file(task.original_filename) and not task.auto_convert_doc:
             continue
-        _enqueue_task(tid)
+        _enqueue_task(tid, priority=getattr(task, 'priority', 0) or 0)
 
     return {"tasks": results}
 
@@ -1317,16 +1331,22 @@ async def clean_completed_sources(db: Session = Depends(get_db)):
 
 @router.get("/stats/trend")
 async def get_stats_trend(days: int = Query(7, ge=1, le=30), db: Session = Depends(get_db)):
-    rows = db.execute(text("""
-        SELECT DATE(created_at) AS d,
-               SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
-               SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed
-        FROM file_tasks
-        WHERE created_at >= DATE('now', '-' || :days || ' days')
-        GROUP BY DATE(created_at)
-        ORDER BY d
-    """), {"days": days}).fetchall()
-    return [{"date": r[0], "completed": r[1], "failed": r[2]} for r in rows]
+    # 用 Python 层面计算趋势数据，兼容 SQLite 和 PostgreSQL
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    tasks = db.query(FileTask.created_at, FileTask.status).filter(
+        FileTask.created_at >= cutoff
+    ).all()
+    daily: dict[str, dict[str, int]] = {}
+    for created_at, status in tasks:
+        d = created_at.strftime("%Y-%m-%d") if created_at else "unknown"
+        if d not in daily:
+            daily[d] = {"completed": 0, "failed": 0}
+        if status == TaskStatus.COMPLETED:
+            daily[d]["completed"] += 1
+        elif status == TaskStatus.FAILED:
+            daily[d]["failed"] += 1
+    return [{"date": d, "completed": v["completed"], "failed": v["failed"]} for d, v in sorted(daily.items())]
 
 
 @router.get("/stats/filetypes")

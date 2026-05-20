@@ -8,8 +8,11 @@ from pathlib import Path
 import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, PlainTextResponse
+from fastapi.responses import FileResponse, Response, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from models import init_db, SessionLocal, FileTask, TaskStatus
 from routes import router, _notify_task_change, add_log, _enqueue_task, start_workers
@@ -112,6 +115,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MinerU Batch Processor", lifespan=lifespan)
+
+# 限流配置
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _cors_origins = os.environ.get("CORS_ORIGINS", "").split(",")
 _cors_origins = [o.strip() for o in _cors_origins if o.strip()]

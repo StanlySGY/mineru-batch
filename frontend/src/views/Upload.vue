@@ -19,6 +19,8 @@ const uploading = ref(false)
 const uploadProgress = ref(0)
 const uploadSpeed = ref('')
 const uploadEta = ref('')
+const uploadFileProgress = ref<Record<number, number>>({})
+const uploadCurrentFile = ref('')
 const abortController = ref<AbortController | null>(null)
 const batchName = ref('')
 
@@ -73,20 +75,29 @@ function clearAllFiles() {
   fileList.value = []
 }
 
-async function readEntry(entry: any, path: string): Promise<File[]> {
+// 拖拽文件夹时，将路径信息存储在 File 对象上
+interface FileWithPath extends File { _folderPath?: string }
+
+async function readEntry(entry: any, path: string): Promise<FileWithPath[]> {
   if (entry.isFile) {
     return new Promise((resolve) => {
-      entry.file((file: File) => {
-        Object.defineProperty(file, 'webkitRelativePath', { value: path + file.name })
+      entry.file((file: FileWithPath) => {
+        file._folderPath = path + file.name
         resolve([file])
       })
     })
   }
   if (entry.isDirectory) {
     const reader = entry.createReader()
-    const entries = await new Promise<any[]>((resolve) => reader.readEntries(resolve))
-    const files: File[] = []
-    for (const e of entries) {
+    const allEntries: any[] = []
+    // readEntries 可能需要多次调用才能读完
+    let batch: any[]
+    do {
+      batch = await new Promise<any[]>((resolve) => reader.readEntries(resolve))
+      allEntries.push(...batch)
+    } while (batch.length > 0)
+    const files: FileWithPath[] = []
+    for (const e of allEntries) {
       const sub = await readEntry(e, path + entry.name + '/')
       files.push(...sub)
     }
@@ -98,7 +109,7 @@ async function readEntry(entry: any, path: string): Promise<File[]> {
 async function handleDrop(e: DragEvent) {
   const items = e.dataTransfer?.items
   if (!items) return
-  const droppedFiles: File[] = []
+  const droppedFiles: FileWithPath[] = []
   for (const item of Array.from(items)) {
     const entry = (item as any).webkitGetAsEntry?.()
     if (entry) {
@@ -114,7 +125,7 @@ async function handleDrop(e: DragEvent) {
   if (!allowed.length) return ElMessage.warning('没有可识别的文件')
   if (fileList.value.length + allowed.length > 200) return ElMessage.warning('最多 200 个文件')
   for (const f of allowed) {
-    fileList.value.push({ name: f.webkitRelativePath || f.name, raw: f } as any)
+    fileList.value.push({ name: f._folderPath || f.webkitRelativePath || f.name, raw: f } as any)
   }
   ElMessage.success(`已添加 ${allowed.length} 个文件`)
 }
@@ -138,8 +149,13 @@ async function handleUpload() {
   uploadProgress.value = 0
   uploadSpeed.value = ''
   uploadEta.value = ''
+  uploadFileProgress.value = {}
+  uploadCurrentFile.value = ''
   abortController.value = new AbortController()
   const batchId = crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now()}${Math.random().toString(16).slice(2)}`
+
+  // 构建 relativePaths：优先使用 fileList.name（包含文件夹路径）
+  const relativePaths = fileList.value.map((f) => f.name)
 
   function buildUploadOpts() {
     const sc = sessionConfig.value
@@ -171,25 +187,65 @@ async function handleUpload() {
     } as import('../api').UploadOptions
   }
 
+  const totalSize = rawFiles.reduce((sum, f) => sum + f.size, 0)
+  const fileSizes = rawFiles.map(f => f.size)
   const MAX_CONCURRENT = 3
-  const queue = [...rawFiles]
+  const queue = rawFiles.map((f, i) => ({ file: f, idx: i }))
   const totalFiles = queue.length
   let completed = 0
   let failed = 0
   const allTasks: any[] = []
 
-  async function uploadOne(file: File): Promise<void> {
+  function updateOverallProgress() {
+    // 字节级进度：所有文件已完成字节 / 总字节
+    let loadedTotal = 0
+    for (let i = 0; i < totalFiles; i++) {
+      const fp = uploadFileProgress.value[i]
+      if (fp !== undefined) {
+        // fp 是百分比，转为字节
+        loadedTotal += (fp / 100) * fileSizes[i]
+      }
+    }
+    uploadProgress.value = totalSize > 0 ? Math.min(99, Math.round((loadedTotal / totalSize) * 100)) : 0
+  }
+
+  async function uploadOne(file: File, fileIdx: number): Promise<void> {
+    uploadCurrentFile.value = file.name
     try {
-      const res = await api.upload([file], buildUploadOpts(), undefined, abortController.value?.signal)
+      const res = await api.upload(
+        [file],
+        buildUploadOpts(),
+        (p) => {
+          uploadFileProgress.value[fileIdx] = p.pct
+          updateOverallProgress()
+          if (p.speed > 0) uploadSpeed.value = formatSpeed(p.speed)
+          if (p.eta > 0 && p.eta < 3600) uploadEta.value = formatEta(p.eta)
+        },
+        abortController.value?.signal,
+      )
       allTasks.push(...res.tasks)
+      uploadFileProgress.value[fileIdx] = 100
       completed++
     } catch (e: any) {
       if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') throw e
+      uploadFileProgress.value[fileIdx] = 100
       failed++
       completed++
       ElMessage.error(`"${file.name}" 上传失败: ${e?.response?.data?.detail || e?.message || '未知错误'}`)
     }
-    uploadProgress.value = Math.round((completed / totalFiles) * 100)
+    updateOverallProgress()
+  }
+
+  function formatSpeed(bytesPerSec: number): string {
+    if (bytesPerSec < 1024) return bytesPerSec.toFixed(0) + ' B/s'
+    if (bytesPerSec < 1024 * 1024) return (bytesPerSec / 1024).toFixed(1) + ' KB/s'
+    return (bytesPerSec / 1024 / 1024).toFixed(1) + ' MB/s'
+  }
+
+  function formatEta(seconds: number): string {
+    if (seconds < 60) return Math.ceil(seconds) + 's'
+    if (seconds < 3600) return Math.ceil(seconds / 60) + 'min'
+    return Math.floor(seconds / 3600) + 'h'
   }
 
   try {
@@ -197,16 +253,19 @@ async function handleUpload() {
     for (let i = 0; i < Math.min(MAX_CONCURRENT, queue.length); i++) {
       workers.push((async () => {
         while (queue.length) {
-          const file = queue.shift()
-          if (!file) break
+          const item = queue.shift()
+          if (!item) break
           if (abortController.value?.signal.aborted) break
-          await uploadOne(file)
+          await uploadOne(item.file, item.idx)
         }
       })())
     }
     await Promise.all(workers)
 
     if (completed > 0) {
+      uploadProgress.value = 100
+      uploadSpeed.value = ''
+      uploadEta.value = ''
       const msg = failed > 0
         ? `完成 ${completed} 个，失败 ${failed} 个`
         : `已提交 ${allTasks.length} 个解析任务`
@@ -376,7 +435,14 @@ onUnmounted(() => {
 
       <div v-if="uploading" class="card-section">
         <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
-        <div class="form-tip">上传中... {{ uploadProgress < 100 ? `${uploadProgress}%` : '上传完成，服务端处理中...' }}</div>
+        <div class="upload-status">
+          <span v-if="uploadProgress < 100">
+            {{ uploadCurrentFile ? `正在上传: ${uploadCurrentFile.split('/').pop()}` : '准备中...' }}
+            {{ uploadSpeed ? ` · ${uploadSpeed}` : '' }}
+            {{ uploadEta ? ` · 剩余 ${uploadEta}` : '' }}
+          </span>
+          <span v-else>上传完成，服务端处理中...</span>
+        </div>
       </div>
 
       <div class="card-section">
@@ -435,6 +501,7 @@ onUnmounted(() => {
 .card-section { margin-top: 12px; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
 .form-tip.warn { color: #e6a23c; }
+.upload-status { font-size: 12px; color: #909399; margin-top: 4px; display: flex; align-items: center; gap: 4px; min-height: 18px; }
 .folder-upload-hint { display: flex; justify-content: center; margin-top: 8px; }
 .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #909399; margin-bottom: 8px; }
 

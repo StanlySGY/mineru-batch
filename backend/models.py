@@ -61,6 +61,7 @@ class FileTask(Base):
     webhook_url = Column(String(1024), nullable=True)
     batch_id = Column(String(64), nullable=True, index=True)
     batch_name = Column(String(256), nullable=True)
+    priority = Column(Integer, default=0, index=True)  # 0=普通, 1=高, 2=紧急
     # output
     output_format = Column(Enum(OutputFormat), default=OutputFormat.MD)
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, index=True)
@@ -100,6 +101,7 @@ class FileTask(Base):
             "webhook_url": self.webhook_url,
             "batch_id": self.batch_id,
             "batch_name": self.batch_name,
+            "priority": self.priority if hasattr(self, 'priority') else 0,
             "status": self.status.value if self.status else None,
             "output_format": self.output_format.value if self.output_format else None,
             "error_message": self.error_message,
@@ -142,16 +144,20 @@ class ProcessLog(Base):
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./mineru_batch.db")
+_IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 15})
+if _IS_SQLITE:
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False, "timeout": 15})
 
+    @event.listens_for(engine, "connect")
+    def _set_wal(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+else:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
 
-@event.listens_for(engine, "connect")
-def _set_wal(dbapi_conn, connection_record):
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA journal_mode=WAL")
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -166,6 +172,8 @@ def _ensure_compatible_schema():
             conn.execute(text("CREATE INDEX IF NOT EXISTS ix_file_tasks_batch_id ON file_tasks (batch_id)"))
         if "batch_name" not in columns:
             conn.execute(text("ALTER TABLE file_tasks ADD COLUMN batch_name VARCHAR(256)"))
+        if "priority" not in columns:
+            conn.execute(text("ALTER TABLE file_tasks ADD COLUMN priority INTEGER DEFAULT 0"))
 
 
 def init_db():
