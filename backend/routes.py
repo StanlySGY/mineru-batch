@@ -16,7 +16,7 @@ import html
 import markdown
 from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
@@ -29,9 +29,7 @@ from error_codes import ErrorCode, with_code
 router = APIRouter()
 
 # 限流：上传接口 10次/分钟
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-_limiter = Limiter(key_func=get_remote_address)
+from limiter import limiter as _limiter
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs"))
@@ -764,6 +762,7 @@ ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp",
 @router.post("/upload")
 @_limiter.limit("10/minute")
 async def upload_files(
+    request: Request,
     files: list[UploadFile] = File(...),
     backend: str = Form("hybrid-http-client"),
     mineru_api: str = Form("http://localhost:8086/file_parse"),
