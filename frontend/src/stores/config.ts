@@ -83,14 +83,6 @@ function resetDefaults() {
   mineruEndpoints.value = [{ ...DEFAULT_ENDPOINT }]
 }
 
-// Presets
-const PRESETS_KEY = 'cfg_presets'
-interface Preset { name: string; data: Record<string, unknown> }
-function loadPresets(): Preset[] {
-  try { const r = localStorage.getItem(PRESETS_KEY); return r ? JSON.parse(r) : [] } catch { return [] }
-}
-function savePresets(list: Preset[]) { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)) }
-
 function getCurrentConfig(): Record<string, unknown> {
   return { ...state }
 }
@@ -106,30 +98,12 @@ function applyConfigData(data: Record<string, unknown>) {
   }
 }
 
-const presets = ref<Preset[]>(loadPresets())
-
-function savePreset(name: string) {
-  const list = loadPresets()
-  const idx = list.findIndex(p => p.name === name)
-  const p: Preset = { name, data: getCurrentConfig() }
-  if (idx >= 0) list[idx] = p; else list.push(p)
-  savePresets(list); presets.value = list
-}
-function loadPreset(name: string) {
-  const p = loadPresets().find(p => p.name === name)
-  if (p) applyConfigData(p.data)
-}
-function deletePreset(name: string) {
-  const list = loadPresets().filter(p => p.name !== name)
-  savePresets(list); presets.value = list
-}
-
 export function useConfig() {
   return {
     state,
     mineruEndpoints,
     applyConfigData,
     resetDefaults,
-    presets, savePreset, loadPreset, deletePreset, getCurrentConfig,
+    getCurrentConfig,
   }
 }

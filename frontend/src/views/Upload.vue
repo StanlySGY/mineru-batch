@@ -21,7 +21,30 @@ const uploadSpeed = ref('')
 const uploadEta = ref('')
 const abortController = ref<AbortController | null>(null)
 
-const configSnapshot = ref<Record<string, any>>({ ...cfg.getCurrentConfig() })
+// 解析场景预设（不持久化，仅当前上传会话有效）
+interface ProfileItem { label: string; desc: string; config: Record<string, any> }
+const PROFILES: Record<string, ProfileItem> = {
+  none: { label: '全局默认', desc: '使用设置页的当前配置', config: {} },
+  academic: {
+    label: '学术论文', desc: '公式/表格全开，保留完整结构信息',
+    config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: true, returnImages: true },
+  },
+  plaintext: {
+    label: '纯文本', desc: '仅提取文字，关闭格式识别和图片',
+    config: { parseMethod: 'txt', formulaEnable: false, tableEnable: false, returnMd: false, returnMiddleJson: false, returnModelOutput: false, returnContentList: false, returnImages: false, responseFormatZip: false, replaceImageUrl: false, outputFormat: 'txt' },
+  },
+  ocr: {
+    label: '扫描件 OCR', desc: '强制 OCR 识别，适用于扫描件/拍照文档',
+    config: { parseMethod: 'ocr', formulaEnable: true, tableEnable: true, returnMd: true, returnImages: true },
+  },
+}
+const selectedProfile = ref<string>('none')
+
+// 当前上传会话的配置 = 全局默认 + 场景预设覆盖
+const sessionConfig = computed(() => ({
+  ...cfg.getCurrentConfig(),
+  ...PROFILES[selectedProfile.value]?.config,
+}))
 
 // 每批上传独立选择的节点列表，不从 store 持久化
 const selectedEndpoints = ref<MineruEndpoint[]>(
@@ -117,29 +140,30 @@ async function handleUpload() {
   abortController.value = new AbortController()
 
   function buildUploadOpts() {
+    const sc = sessionConfig.value
     return {
-      backend: cfg.state.backend,
-      mineruApi: cfg.state.mineruApi,
-      serverUrl: cfg.state.serverUrl,
+      backend: sc.backend,
+      mineruApi: sc.mineruApi,
+      serverUrl: sc.serverUrl,
       endpoints: selectedEndpoints.value.length > 0
         ? JSON.stringify(selectedEndpoints.value)
         : undefined,
-      parseMethod: cfg.state.parseMethod,
-      langList: cfg.state.langList,
-      formulaEnable: cfg.state.formulaEnable,
-      tableEnable: cfg.state.tableEnable,
-      returnMd: cfg.state.returnMd,
-      returnMiddleJson: cfg.state.returnMiddleJson,
-      returnModelOutput: cfg.state.returnModelOutput,
-      returnContentList: cfg.state.returnContentList,
-      returnImages: cfg.state.returnImages,
-      responseFormatZip: cfg.state.responseFormatZip,
-      replaceImageUrl: cfg.state.replaceImageUrl,
-      startPageId: cfg.state.startPageId,
-      endPageId: cfg.state.endPageId,
-      outputFormat: cfg.state.outputFormat,
-      timeout: cfg.state.timeout,
-      autoConvert: cfg.state.autoConvert,
+      parseMethod: sc.parseMethod,
+      langList: sc.langList,
+      formulaEnable: sc.formulaEnable,
+      tableEnable: sc.tableEnable,
+      returnMd: sc.returnMd,
+      returnMiddleJson: sc.returnMiddleJson,
+      returnModelOutput: sc.returnModelOutput,
+      returnContentList: sc.returnContentList,
+      returnImages: sc.returnImages,
+      responseFormatZip: sc.responseFormatZip,
+      replaceImageUrl: sc.replaceImageUrl,
+      startPageId: sc.startPageId,
+      endPageId: sc.endPageId,
+      outputFormat: sc.outputFormat,
+      timeout: sc.timeout,
+      autoConvert: sc.autoConvert,
       webhookUrl: (cfg as any).state?.webhookUrl || undefined,
     } as import('../api').UploadOptions
   }
@@ -290,6 +314,21 @@ onUnmounted(() => {
         </div>
       </template>
 
+      <!-- 解析场景 -->
+      <div class="card-section">
+        <div class="section-label">解析场景</div>
+        <div class="profile-selector">
+          <div v-for="(p, key) in PROFILES" :key="key"
+            class="profile-card"
+            :class="{ active: selectedProfile === key }"
+            @click="selectedProfile = key"
+          >
+            <div class="profile-label">{{ p.label }}</div>
+            <div class="profile-desc">{{ p.desc }}</div>
+          </div>
+        </div>
+      </div>
+
       <!-- 节点选择 -->
       <div v-if="cfg.mineruEndpoints.value.length" class="card-section">
         <div class="section-label">选择解析节点</div>
@@ -324,7 +363,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <ConfigPanel :config="configSnapshot" />
+      <ConfigPanel :config="sessionConfig" />
 
       <div v-if="uploading" class="card-section">
         <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
@@ -359,6 +398,17 @@ onUnmounted(() => {
 .upload-drop-zone:hover::after { border-color: #409eff; }
 .card-header-row { display: flex; align-items: center; gap: 10px; }
 .card-title { font-weight: 600; }
+
+.profile-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.profile-card {
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  border: 1.5px solid #e4e7ed; transition: all 0.15s; background: #fff;
+}
+.profile-card:hover { border-color: #409eff; }
+.profile-card.active { border-color: #409eff; background: #ecf5ff; }
+.profile-label { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 2px; }
+.profile-card.active .profile-label { color: #409eff; }
+.profile-desc { font-size: 11px; color: #909399; line-height: 1.3; }
 
 .file-list-section { margin-top: 16px; border-top: 1px solid #f0f0f0; padding-top: 12px; }
 .file-list-header { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
