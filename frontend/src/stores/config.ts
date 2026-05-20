@@ -1,4 +1,4 @@
-import { ref, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 
 export interface MineruEndpoint {
   url: string
@@ -6,23 +6,6 @@ export interface MineruEndpoint {
   serverUrl: string
   enabled: boolean
   apiKey?: string
-}
-
-// Generic localStorage-backed ref factory
-function lsRef<T extends string | number | boolean>(key: string, fallback: T) {
-  const raw = localStorage.getItem(key)
-  let init: T
-  if (typeof fallback === 'boolean') {
-    init = (raw === null ? fallback : raw === 'true') as T
-  } else if (typeof fallback === 'number') {
-    const n = raw === null ? fallback : Number(raw)
-    init = (Number.isNaN(n) ? fallback : n) as T
-  } else {
-    init = (raw ?? fallback) as T
-  }
-  const r = ref(init) as ReturnType<typeof ref<T>>
-  watch(r, (v) => localStorage.setItem(key, String(v)))
-  return r
 }
 
 const LS = {
@@ -60,10 +43,25 @@ const DEFAULTS = {
   autoConvert: true,
 } as const
 
-// Create all config refs from defaults
-const cfg = Object.fromEntries(
-  Object.entries(DEFAULTS).map(([k, v]) => [k, lsRef(LS[k as keyof typeof LS], v)])
-) as { [K in keyof typeof DEFAULTS]: ReturnType<typeof ref<(typeof DEFAULTS)[K]>> }
+const state: Record<string, any> = reactive({ ...DEFAULTS })
+
+for (const [k, v] of Object.entries(DEFAULTS)) {
+  const raw = localStorage.getItem(LS[k as keyof typeof LS])
+  if (raw !== null) {
+    if (typeof v === 'boolean') state[k] = raw === 'true'
+    else if (typeof v === 'number') state[k] = Number.isNaN(Number(raw)) ? v : Number(raw)
+    else state[k] = raw
+  }
+}
+
+watch(
+  () => Object.keys(DEFAULTS).map(k => String(state[k])).join('\x00'),
+  () => {
+    for (const k of Object.keys(DEFAULTS)) {
+      localStorage.setItem(LS[k as keyof typeof LS], String(state[k]))
+    }
+  }
+)
 
 // Endpoints (array type, handled separately)
 const DEFAULT_ENDPOINT: MineruEndpoint = {
@@ -81,9 +79,7 @@ const mineruEndpoints = ref<MineruEndpoint[]>(loadEndpoints())
 watch(mineruEndpoints, (v) => localStorage.setItem(LS.mineruEndpoints, JSON.stringify(v)), { deep: true })
 
 function resetDefaults() {
-  for (const [k, v] of Object.entries(DEFAULTS)) {
-    cfg[k as keyof typeof DEFAULTS].value = v as never
-  }
+  Object.assign(state, DEFAULTS)
   mineruEndpoints.value = [{ ...DEFAULT_ENDPOINT }]
 }
 
@@ -96,16 +92,16 @@ function loadPresets(): Preset[] {
 function savePresets(list: Preset[]) { localStorage.setItem(PRESETS_KEY, JSON.stringify(list)) }
 
 function getCurrentConfig(): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(cfg).map(([k, r]) => [k, r.value]))
+  return { ...state }
 }
 
 function applyConfigData(data: Record<string, unknown>) {
   console.debug('[config] applyConfigData:', JSON.stringify(data))
-  for (const [k, r] of Object.entries(cfg)) {
-    if (data[k] !== undefined) {
-      const old = (r as ReturnType<typeof ref>).value
-      ;(r as ReturnType<typeof ref>).value = data[k] as never
-      console.debug(`[config]  ${k}: ${JSON.stringify(old)} → ${JSON.stringify(data[k])}`)
+  for (const [k, v] of Object.entries(data)) {
+    if (k in DEFAULTS && v !== undefined) {
+      const old = state[k]
+      state[k] = v
+      console.debug(`[config]  ${k}: ${JSON.stringify(old)} → ${JSON.stringify(v)}`)
     }
   }
 }
@@ -130,7 +126,7 @@ function deletePreset(name: string) {
 
 export function useConfig() {
   return {
-    ...cfg,
+    state,
     mineruEndpoints,
     applyConfigData,
     resetDefaults,

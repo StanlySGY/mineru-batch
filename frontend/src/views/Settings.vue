@@ -141,7 +141,7 @@ function handleExportConfig() {
     'formulaEnable', 'tableEnable', 'returnMd', 'returnMiddleJson', 'returnModelOutput',
     'returnContentList', 'returnImages', 'responseFormatZip', 'replaceImageUrl',
     'startPageId', 'endPageId', 'timeout', 'autoConvert'] as const
-  for (const k of keys) config[k] = (cfg as any)[k]?.value
+  for (const k of keys) config[k] = (cfg as any).state?.[k]
   config['mineruEndpoints'] = cfg.mineruEndpoints.value
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
@@ -294,7 +294,7 @@ const paramTable = [
 
     <el-form label-position="top" class="settings-form">
       <el-form-item label="解析方式 (parse_method)">
-        <el-select v-model="cfg.parseMethod.value">
+          <el-select v-model="cfg.state.parseMethod">
           <el-option value="auto" label="auto" />
           <el-option value="ocr" label="ocr" />
           <el-option value="txt" label="txt" />
@@ -302,11 +302,11 @@ const paramTable = [
       </el-form-item>
 
       <el-form-item label="语言 (lang_list)">
-        <el-input v-model="cfg.langList.value" placeholder="ch / en / ch,en" />
+        <el-input v-model="cfg.state.langList" placeholder="ch / en / ch,en" />
       </el-form-item>
 
       <el-form-item label="默认输出格式">
-        <el-radio-group v-model="cfg.outputFormat.value">
+        <el-radio-group v-model="cfg.state.outputFormat">
           <el-radio-button value="md">Markdown (.md)</el-radio-button>
           <el-radio-button value="txt">纯文本 (.txt)</el-radio-button>
           <el-radio-button value="html">HTML (.html)</el-radio-button>
@@ -314,12 +314,12 @@ const paramTable = [
       </el-form-item>
 
       <el-form-item label="超时时间 (秒)">
-        <el-input-number v-model="cfg.timeout.value" :min="60" :max="3600" :step="60" />
+        <el-input-number v-model="cfg.state.timeout" :min="60" :max="3600" :step="60" />
         <div class="form-tip">大文件建议 600~1800 秒，防止长时间解析断连</div>
       </el-form-item>
 
       <el-form-item label="文档自动转 PDF">
-        <el-switch v-model="cfg.autoConvert.value" />
+        <el-switch v-model="cfg.state.autoConvert" />
         <div class="form-tip">关闭后，Word/PPT/Excel 文件需在任务列表手动点击转换</div>
       </el-form-item>
 
@@ -331,22 +331,22 @@ const paramTable = [
       <el-divider content-position="left">开关选项</el-divider>
 
       <div class="switch-grid">
-        <el-form-item label="公式识别"><el-switch v-model="cfg.formulaEnable.value" /></el-form-item>
-        <el-form-item label="表格识别"><el-switch v-model="cfg.tableEnable.value" /></el-form-item>
-        <el-form-item label="返回 Markdown"><el-switch v-model="cfg.returnMd.value" /></el-form-item>
-        <el-form-item label="返回 middle_json"><el-switch v-model="cfg.returnMiddleJson.value" /></el-form-item>
-        <el-form-item label="返回模型输出"><el-switch v-model="cfg.returnModelOutput.value" /></el-form-item>
-        <el-form-item label="返回 content_list"><el-switch v-model="cfg.returnContentList.value" /></el-form-item>
-        <el-form-item label="返回图片"><el-switch v-model="cfg.returnImages.value" /></el-form-item>
-        <el-form-item label="ZIP 格式响应"><el-switch v-model="cfg.responseFormatZip.value" /></el-form-item>
-        <el-form-item label="替换图片 URL"><el-switch v-model="cfg.replaceImageUrl.value" /></el-form-item>
+        <el-form-item label="公式识别"><el-switch v-model="cfg.state.formulaEnable" /></el-form-item>
+        <el-form-item label="表格识别"><el-switch v-model="cfg.state.tableEnable" /></el-form-item>
+        <el-form-item label="返回 Markdown"><el-switch v-model="cfg.state.returnMd" /></el-form-item>
+        <el-form-item label="返回 middle_json"><el-switch v-model="cfg.state.returnMiddleJson" /></el-form-item>
+        <el-form-item label="返回模型输出"><el-switch v-model="cfg.state.returnModelOutput" /></el-form-item>
+        <el-form-item label="返回 content_list"><el-switch v-model="cfg.state.returnContentList" /></el-form-item>
+        <el-form-item label="返回图片"><el-switch v-model="cfg.state.returnImages" /></el-form-item>
+        <el-form-item label="ZIP 格式响应"><el-switch v-model="cfg.state.responseFormatZip" /></el-form-item>
+        <el-form-item label="替换图片 URL"><el-switch v-model="cfg.state.replaceImageUrl" /></el-form-item>
       </div>
 
       <el-divider content-position="left">页码范围</el-divider>
 
       <div class="page-range-row">
-        <el-form-item label="起始页码"><el-input-number v-model="cfg.startPageId.value" :min="0" /></el-form-item>
-        <el-form-item label="结束页码"><el-input-number v-model="cfg.endPageId.value" :min="0" /></el-form-item>
+        <el-form-item label="起始页码"><el-input-number v-model="cfg.state.startPageId" :min="0" /></el-form-item>
+        <el-form-item label="结束页码"><el-input-number v-model="cfg.state.endPageId" :min="0" /></el-form-item>
       </div>
     </el-form>
   </el-card>
