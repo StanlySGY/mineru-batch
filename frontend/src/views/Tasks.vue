@@ -60,6 +60,59 @@ const selectedHasDownloadable = computed(() =>
   selectedIds.value.some(id => { const t = tasks.value.find(r => r.id === id); return t && t.status === 'completed' })
 )
 
+// ---------- 批量进度 ----------
+interface BatchProgressItem {
+  id: number; filename: string; status: 'pending' | 'processing' | 'completed' | 'failed'; error?: string
+}
+const batchProgress = ref({
+  visible: false,
+  title: '',
+  items: [] as BatchProgressItem[],
+  total: 0,
+  completed: 0,
+  failed: 0,
+  current: '',
+  running: false,
+})
+
+async function runBatchProgress(
+  title: string,
+  items: { id: number; filename: string }[],
+  handler: (id: number) => Promise<void>,
+) {
+  if (!items.length) return
+  const progressItems: BatchProgressItem[] = items.map(i => ({ id: i.id, filename: i.filename, status: 'pending' }))
+  batchProgress.value = {
+    visible: true, title,
+    items: progressItems,
+    total: items.length, completed: 0, failed: 0, current: '', running: true,
+  }
+  for (const item of items) {
+    if (!batchProgress.value.running) break
+    batchProgress.value.current = item.filename
+    const bp = progressItems.find(i => i.id === item.id)
+    if (bp) bp.status = 'processing'
+    try {
+      await handler(item.id)
+      if (bp) bp.status = 'completed'
+      batchProgress.value.completed++
+    } catch (e: any) {
+      if (bp) { bp.status = 'failed'; bp.error = e?.response?.data?.detail || e?.message || '未知错误' }
+      batchProgress.value.failed++
+    }
+  }
+  batchProgress.value.current = ''
+  batchProgress.value.running = false
+  const s = batchProgress.value.completed
+  const f = batchProgress.value.failed
+  if (f > 0) ElMessage.warning(`完成 ${s}/${items.length}，失败 ${f}`)
+  else ElMessage.success(`全部完成 (${s}/${items.length})`)
+}
+
+function cancelBatchProgress() {
+  batchProgress.value.running = false
+}
+
 const previewVisible = ref(false)
 const previewLoading = ref(false)
 const previewContent = ref('')
@@ -206,8 +259,11 @@ async function handleBatchDelete() {
   if (!selectedIds.value.length) return ElMessage.warning('请先选择任务')
   try {
     await ElMessageBox.confirm(`确定删除选中的 ${selectedIds.value.length} 个任务？`, '确认', { type: 'warning' })
-    await api.batchDeleteTasks(selectedIds.value)
-    ElMessage.success('已批量删除')
+    const items = selectedIds.value.map(id => {
+      const t = tasks.value.find(r => r.id === id)
+      return { id, filename: t?.original_filename || `#${id}` }
+    })
+    await runBatchProgress('批量删除', items, (id) => api.deleteTask(id))
     selectedIds.value = []
     loadTasks()
   } catch {}
@@ -215,32 +271,26 @@ async function handleBatchDelete() {
 
 async function handleBatchRetry() {
   if (!selectedIds.value.length) return ElMessage.warning('请先选择任务')
-  const ids = selectedIds.value.filter(id => {
+  const items = selectedIds.value.map(id => {
     const t = tasks.value.find(r => r.id === id)
-    return t && (t.status === 'failed' || t.status === 'completed')
-  })
-  if (!ids.length) return ElMessage.warning('选中的任务中没有可重试的（失败/已完成）')
-  try {
-    const res = await api.batchRetryTasks(ids)
-    ElMessage.success(`已重试 ${res.count} 个任务`)
-    selectedIds.value = []
-    loadTasks()
-  } catch { ElMessage.error('批量重试失败') }
+    return { id, filename: t?.original_filename || `#${id}`, retryable: t && (t.status === 'failed' || t.status === 'completed') }
+  }).filter(i => i.retryable)
+  if (!items.length) return ElMessage.warning('选中的任务中没有可重试的（失败/已完成）')
+  await runBatchProgress('批量重试', items, (id) => api.retryTask(id))
+  selectedIds.value = []
+  loadTasks()
 }
 
 async function handleBatchConvert() {
   if (!selectedIds.value.length) return ElMessage.warning('请先选择任务')
-  const ids = selectedIds.value.filter(id => {
+  const items = selectedIds.value.map(id => {
     const t = tasks.value.find(r => r.id === id)
-    return t && isDocFile(t.original_filename) && !t.pdf_path
-  })
-  if (!ids.length) return ElMessage.warning('选中的任务中没有待转换的文档')
-  try {
-    const res = await api.batchConvertDocs(ids)
-    ElMessage.success(`已转换 ${res.count} 个文档`)
-    selectedIds.value = []
-    loadTasks()
-  } catch { ElMessage.error('批量转换失败') }
+    return { id, filename: t?.original_filename || `#${id}`, convertible: t && isDocFile(t.original_filename) && !t.pdf_path }
+  }).filter(i => i.convertible)
+  if (!items.length) return ElMessage.warning('选中的任务中没有待转换的文档')
+  await runBatchProgress('批量转换', items, (id) => api.convertDocToPdf(id))
+  selectedIds.value = []
+  loadTasks()
 }
 
 function handleBatchDownload() {
@@ -259,23 +309,17 @@ function handleBatchDownload() {
 }
 
 async function handleRetryAllFailed() {
-  const failedIds = tasks.value.filter(t => t.status === 'failed').map(t => t.id)
-  if (!failedIds.length) return ElMessage.warning('当前页无失败任务')
-  try {
-    const res = await api.batchRetryTasks(failedIds)
-    ElMessage.success(`已重试 ${res.count} 个当前页失败任务`)
-    loadTasks()
-  } catch { ElMessage.error('批量重试失败') }
+  const items = tasks.value.filter(t => t.status === 'failed').map(t => ({ id: t.id, filename: t.original_filename }))
+  if (!items.length) return ElMessage.warning('当前页无失败任务')
+  await runBatchProgress('重试当前页失败', items, (id) => api.retryTask(id))
+  loadTasks()
 }
 
 async function handleConvertAllDocs() {
-  const docIds = tasks.value.filter(t => isDocFile(t.original_filename) && !t.pdf_path).map(t => t.id)
-  if (!docIds.length) return ElMessage.warning('当前页无待转换文档')
-  try {
-    const res = await api.batchConvertDocs(docIds)
-    ElMessage.success(`已转换 ${res.count} 个当前页文档`)
-    loadTasks()
-  } catch { ElMessage.error('批量转换失败') }
+  const items = tasks.value.filter(t => isDocFile(t.original_filename) && !t.pdf_path).map(t => ({ id: t.id, filename: t.original_filename }))
+  if (!items.length) return ElMessage.warning('当前页无待转换文档')
+  await runBatchProgress('转换当前页文档', items, (id) => api.convertDocToPdf(id))
+  loadTasks()
 }
 
 function handleRetry(row: TaskItem) {
@@ -720,6 +764,40 @@ function checkMobile() {
   </template>
 </el-drawer>
 
+<el-dialog v-model="batchProgress.visible" :title="batchProgress.title" width="520px" destroy-on-close :close-on-click-modal="false" class="batch-progress-dialog">
+  <div class="batch-progress">
+    <el-progress
+      :percentage="batchProgress.total > 0 ? Math.round((batchProgress.completed + batchProgress.failed) / batchProgress.total * 100) : 0"
+      :stroke-width="20"
+      :color="batchProgress.failed > 0 && batchProgress.completed === batchProgress.total ? '#e6a23c' : '#409eff'"
+    />
+    <div class="batch-stats">
+      <span>已完成 <strong>{{ batchProgress.completed }}</strong></span>
+      <span v-if="batchProgress.failed">失败 <strong style="color:#f56c6c">{{ batchProgress.failed }}</strong></span>
+      <span>共 <strong>{{ batchProgress.total }}</strong></span>
+      <span v-if="batchProgress.current" class="batch-current-filename" :title="batchProgress.current">
+        ⏳ {{ batchProgress.current }}
+      </span>
+    </div>
+    <div v-if="batchProgress.items.length <= 100" class="batch-item-list">
+      <div v-for="item in batchProgress.items" :key="item.id" class="batch-item">
+        <span class="bi-name">{{ item.filename }}</span>
+        <span class="bi-status">
+          <template v-if="item.status === 'completed'">✅</template>
+          <template v-else-if="item.status === 'failed'">❌</template>
+          <template v-else-if="item.status === 'processing'">⏳</template>
+          <template v-else>⏸</template>
+        </span>
+        <div v-if="item.error" class="bi-error">{{ item.error }}</div>
+      </div>
+    </div>
+    <div class="batch-actions">
+      <el-button v-if="batchProgress.running" type="danger" size="small" @click="cancelBatchProgress">取消</el-button>
+      <el-button v-else type="primary" size="small" @click="batchProgress.visible = false">关闭</el-button>
+    </div>
+  </div>
+</el-dialog>
+
 <el-dialog v-model="retryDialogVisible" title="选择重试节点" width="480px" top="25vh" destroy-on-close>
   <template v-if="retryTarget">
     <p style="margin:0 0 16px;font-size:14px;color:#606266">
@@ -839,6 +917,16 @@ function checkMobile() {
 .mobile-card-error { font-size: 12px; color: #f56c6c; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-card-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; }
 
+.batch-progress-dialog :deep(.el-dialog__body) { padding: 20px; }
+.batch-progress { display: flex; flex-direction: column; gap: 14px; }
+.batch-stats { display: flex; align-items: center; gap: 16px; font-size: 13px; color: #606266; flex-wrap: wrap; }
+.batch-current-filename { color: #409eff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 300px; }
+.batch-item-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid #ebeef5; border-radius: 6px; padding: 8px; background: #fafafa; }
+.batch-item { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+.bi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #303133; }
+.bi-status { flex-shrink: 0; font-size: 14px; }
+.bi-error { width: 100%; font-size: 11px; color: #f56c6c; margin-top: -2px; }
+.batch-actions { display: flex; justify-content: center; }
 .custom-endpoint-form {
   background: #f5f7fa; border-radius: 8px; padding: 12px; margin-top: 4px;
 }

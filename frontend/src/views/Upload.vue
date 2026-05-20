@@ -154,9 +154,6 @@ async function handleUpload() {
   abortController.value = new AbortController()
   const batchId = crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now()}${Math.random().toString(16).slice(2)}`
 
-  // 构建 relativePaths：优先使用 fileList.name（包含文件夹路径）
-  const relativePaths = fileList.value.map((f) => f.name)
-
   function buildUploadOpts() {
     const sc = sessionConfig.value
     return {

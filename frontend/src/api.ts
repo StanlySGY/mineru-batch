@@ -202,7 +202,7 @@ export const api = {
     const relativePaths: string[] = []
     files.forEach((f) => {
       form.append('files', f)
-      relativePaths.push((f as any).webkitRelativePath || f.name)
+      relativePaths.push((f as any).webkitRelativePath || (f as any)._folderPath || f.name)
     })
     form.append('relative_paths', JSON.stringify(relativePaths))
     form.append('backend', opts.backend)
