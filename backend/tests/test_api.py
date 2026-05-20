@@ -38,9 +38,31 @@ class TestUpload:
                     ("files", ("a.pdf", MINIMAL_PDF, "application/pdf")),
                     ("files", ("b.pdf", MINIMAL_PDF, "application/pdf")),
                 ],
+                data={**_upload_form(), "batch_id": "batch-1", "batch_name": "测试批次"})
+        assert resp.status_code == 200
+        tasks = resp.json()["tasks"]
+        assert len(tasks) == 2
+        assert {t["batch_id"] for t in tasks} == {"batch-1"}
+        assert {t["batch_name"] for t in tasks} == {"测试批次"}
+        assert all("api_key" not in t for t in tasks)
+    def test_upload_uses_server_settings_api_key(self, client, db_session):
+        client.put("/api/settings", json={
+            "defaults": {},
+            "mineruEndpoints": [{
+                "url": "http://localhost:8086/file_parse",
+                "backend": "hybrid-http-client",
+                "serverUrl": "http://localhost:6002/v1",
+                "enabled": True,
+                "apiKey": "server-secret",
+            }],
+        })
+        with patch("routes._enqueue_task"):
+            resp = client.post("/api/upload",
+                files=[("files", ("test.pdf", MINIMAL_PDF, "application/pdf"))],
                 data=_upload_form())
         assert resp.status_code == 200
-        assert len(resp.json()["tasks"]) == 2
+        task = db_session.query(FileTask).first()
+        assert task.api_key == "server-secret"
 
 
 class TestTaskCRUD:

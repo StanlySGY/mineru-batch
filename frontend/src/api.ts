@@ -45,6 +45,8 @@ export interface TaskItem {
   replace_image_url: boolean
   start_page_id: number
   end_page_id: number
+  batch_id: string | null
+  batch_name: string | null
   status: 'pending' | 'processing' | 'completed' | 'failed'
   output_format: 'md' | 'txt' | 'html'
   error_message: string | null
@@ -101,6 +103,33 @@ export interface UploadOptions {
   timeout: number
   autoConvert: boolean
   apiKey?: string
+  batchId?: string
+  batchName?: string
+}
+
+export interface ServerEndpoint {
+  url: string
+  backend: string
+  serverUrl: string
+  enabled: boolean
+  apiKey?: string
+  hasApiKey?: boolean
+}
+
+export interface ServerSettings {
+  defaults: Record<string, string | number | boolean>
+  mineruEndpoints: ServerEndpoint[]
+}
+
+export interface QualityReport {
+  total: number
+  completed: number
+  failed: number
+  processing: number
+  pending: number
+  success_rate: number
+  avg_duration_ms: number
+  recent_failures: { id: number; filename: string; error_message: string | null; created_at: string | null; completed_at: string | null }[]
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -143,6 +172,21 @@ export const api = {
     return data as { total: number; pending: number; processing: number; completed: number; failed: number; avg_duration_ms: number }
   },
 
+  async getSettings() {
+    const { data } = await http.get('/settings')
+    return data as ServerSettings
+  },
+
+  async saveSettings(settings: ServerSettings) {
+    const { data } = await http.put('/settings', settings)
+    return data as ServerSettings
+  },
+
+  async getQualityReport() {
+    const { data } = await http.get('/reports/quality')
+    return data as QualityReport
+  },
+
   async getConcurrency() {
     const { data } = await http.get('/concurrency')
     return data as { concurrency: number }
@@ -182,6 +226,8 @@ export const api = {
     form.append('timeout', String(opts.timeout))
     form.append('auto_convert', String(opts.autoConvert))
     if (opts.apiKey) form.append('api_key', opts.apiKey)
+    if (opts.batchId) form.append('batch_id', opts.batchId)
+    if (opts.batchName) form.append('batch_name', opts.batchName)
     const startTime = Date.now()
     let lastLoaded = 0
     let lastTime = startTime
@@ -207,7 +253,7 @@ export const api = {
     return data
   },
 
-  async listTasks(params: { status?: string; search?: string; page?: number; size?: number }) {
+  async listTasks(params: { status?: string; search?: string; batch_id?: string; page?: number; size?: number }) {
     const { data } = await http.get('/tasks', { params })
     return data as { total: number; items: TaskItem[] }
   },

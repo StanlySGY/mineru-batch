@@ -20,6 +20,7 @@ const uploadProgress = ref(0)
 const uploadSpeed = ref('')
 const uploadEta = ref('')
 const abortController = ref<AbortController | null>(null)
+const batchName = ref('')
 
 // 解析场景预设（不持久化，仅当前上传会话有效）
 interface ProfileItem { label: string; desc: string; config: Record<string, any> }
@@ -138,6 +139,7 @@ async function handleUpload() {
   uploadSpeed.value = ''
   uploadEta.value = ''
   abortController.value = new AbortController()
+  const batchId = crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now()}${Math.random().toString(16).slice(2)}`
 
   function buildUploadOpts() {
     const sc = sessionConfig.value
@@ -164,7 +166,8 @@ async function handleUpload() {
       outputFormat: sc.outputFormat,
       timeout: sc.timeout,
       autoConvert: sc.autoConvert,
-      apiKey: selectedEndpoints.value[0]?.apiKey || undefined,
+      batchId,
+      batchName: batchName.value.trim() || undefined,
     } as import('../api').UploadOptions
   }
 
@@ -210,7 +213,8 @@ async function handleUpload() {
       ElMessage.success(msg)
       requestNotificationPermission()
       fileList.value = []
-      router.push('/tasks')
+      batchName.value = ''
+      router.push({ path: '/tasks', query: { batch_id: batchId } })
     }
   } catch (e: any) {
     if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {
@@ -241,6 +245,11 @@ onUnmounted(() => {
       </template>
 
       <div class="upload-drop-zone" @drop.prevent="handleDrop" @dragover.prevent>
+        <el-form label-position="top" class="batch-form">
+          <el-form-item label="批次名称（可选）">
+            <el-input v-model="batchName" maxlength="80" show-word-limit placeholder="例如：产品手册入库-2026-05" />
+          </el-form-item>
+        </el-form>
         <el-upload
           v-model:file-list="fileList"
           multiple

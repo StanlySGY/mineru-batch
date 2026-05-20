@@ -2,7 +2,7 @@ import os
 import time
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, ForeignKey
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 import enum
 
@@ -59,6 +59,8 @@ class FileTask(Base):
     end_page_id = Column(Integer, default=99999)
     api_key = Column(String(256), nullable=True)
     webhook_url = Column(String(1024), nullable=True)
+    batch_id = Column(String(64), nullable=True, index=True)
+    batch_name = Column(String(256), nullable=True)
     # output
     output_format = Column(Enum(OutputFormat), default=OutputFormat.MD)
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, index=True)
@@ -96,6 +98,8 @@ class FileTask(Base):
             "start_page_id": self.start_page_id,
             "end_page_id": self.end_page_id,
             "webhook_url": self.webhook_url,
+            "batch_id": self.batch_id,
+            "batch_name": self.batch_name,
             "status": self.status.value if self.status else None,
             "output_format": self.output_format.value if self.output_format else None,
             "error_message": self.error_message,
@@ -104,6 +108,16 @@ class FileTask(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    key = Column(String(128), unique=True, nullable=False, index=True)
+    value_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class ProcessLog(Base):
@@ -141,8 +155,22 @@ def _set_wal(dbapi_conn, connection_record):
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
+def _ensure_compatible_schema():
+    inspector = inspect(engine)
+    if "file_tasks" not in inspector.get_table_names():
+        return
+    columns = {c["name"] for c in inspector.get_columns("file_tasks")}
+    with engine.begin() as conn:
+        if "batch_id" not in columns:
+            conn.execute(text("ALTER TABLE file_tasks ADD COLUMN batch_id VARCHAR(64)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_file_tasks_batch_id ON file_tasks (batch_id)"))
+        if "batch_name" not in columns:
+            conn.execute(text("ALTER TABLE file_tasks ADD COLUMN batch_name VARCHAR(256)"))
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _ensure_compatible_schema()
 
 
 def get_db():

@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfig } from '../stores/config'
 import { formatSize as formatStorage } from '../utils/format'
 import { api } from '../api'
+import type { ServerSettings } from '../api'
 
 const cfg = useConfig()
 
@@ -13,6 +14,25 @@ const testingAll = ref(false)
 const nodeLatency = ref<Record<number, string>>({})
 const concurrency = ref(5)
 const storage = ref<{ uploads: number; outputs: number; converted: number; database: number; total: number } | null>(null)
+const savingSettings = ref(false)
+
+async function loadServerSettings() {
+  try {
+    const settings = await api.getSettings()
+    cfg.applyServerSettings(settings as any)
+  } catch {}
+}
+
+async function saveServerSettings(showSuccess = true) {
+  savingSettings.value = true
+  try {
+    const saved = await api.saveSettings(cfg.exportServerSettings() as ServerSettings)
+    cfg.applyServerSettings(saved as any)
+    if (showSuccess) ElMessage.success('配置已保存到服务端')
+  } finally {
+    savingSettings.value = false
+  }
+}
 
 async function loadConcurrency() {
   try {
@@ -105,7 +125,7 @@ function removeEndpoint(idx: number) {
 
 function handleReset() {
   cfg.resetDefaults()
-  ElMessage.success('已恢复默认配置')
+  saveServerSettings(false).then(() => ElMessage.success('已恢复默认配置'))
 }
 
 function handleExportConfig() {
@@ -153,6 +173,8 @@ function handleImportConfig() {
       if (Array.isArray(config.mineruEndpoints)) {
         localStorage.setItem('cfg_mineru_endpoints', JSON.stringify(config.mineruEndpoints))
       }
+      await loadServerSettings()
+      await saveServerSettings(false)
       window.location.reload()
     } catch {
       ElMessage.error('导入失败：无效的配置文件')
@@ -161,6 +183,7 @@ function handleImportConfig() {
   input.click()
 }
 
+loadServerSettings()
 loadConcurrency()
 loadStorage()
 
@@ -198,6 +221,7 @@ const paramTable = [
           <el-button size="small" :loading="testingAll" @click="handleTestAllEndpoints">测试全部</el-button>
           <el-button size="small" :icon="Download" @click="handleExportConfig">导出配置</el-button>
           <el-button size="small" :icon="Upload" @click="handleImportConfig">导入配置</el-button>
+          <el-button size="small" type="primary" :loading="savingSettings" @click="saveServerSettings()">保存配置</el-button>
           <el-button size="small" @click="handleReset">恢复默认</el-button>
         </div>
       </div>
@@ -236,7 +260,7 @@ const paramTable = [
             </el-form-item>
           </div>
           <el-form-item label="API Key (可选)">
-            <el-input v-model="ep.apiKey" placeholder="留空则不发送认证头" show-password clearable />
+            <el-input v-model="ep.apiKey" :placeholder="ep.hasApiKey ? '已配置，留空则保留服务端密钥' : '留空则不发送认证头'" show-password clearable />
           </el-form-item>
         </el-form>
       </div>

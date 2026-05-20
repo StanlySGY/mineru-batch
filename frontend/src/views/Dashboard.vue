@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { api, type TaskItem } from '../api'
+import { api, type TaskItem, type QualityReport } from '../api'
 import { formatTime } from '../utils/format'
 import { useConfig } from '../stores/config'
 import * as echarts from 'echarts/core'
@@ -19,6 +19,7 @@ const recentTasks = ref<TaskItem[]>([])
 const loading = ref(false)
 const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
+const qualityReport = ref<QualityReport | null>(null)
 const showWelcome = ref(false)
 function dismissWelcome() {
   showWelcome.value = false
@@ -69,14 +70,16 @@ const storageDisplay = computed(() => {
 async function loadStats() {
   loading.value = true
   try {
-    const [statsRes, recentRes, storRes] = await Promise.all([
+    const [statsRes, recentRes, storRes, qualityRes] = await Promise.all([
       api.getStats(),
       api.listTasks({ page: 1, size: 5 }),
       api.getStorage().catch(() => null),
+      api.getQualityReport().catch(() => null),
     ])
     stats.value = statsRes
     recentTasks.value = recentRes.items
     if (storRes) storageInfo.value = storRes
+    if (qualityRes) qualityReport.value = qualityRes
   } catch (e) {
     console.error('[Dashboard] loadStats failed:', e)
   } finally {
@@ -241,6 +244,24 @@ onUnmounted(() => {
 
       <el-card shadow="never" class="recent-card">
         <template #header>
+          <span class="card-title">解析质量概览</span>
+        </template>
+        <div class="quality-grid" v-if="qualityReport">
+          <div class="quality-item"><span>成功率</span><strong>{{ qualityReport.success_rate }}%</strong></div>
+          <div class="quality-item"><span>失败数</span><strong>{{ qualityReport.failed }}</strong></div>
+          <div class="quality-item"><span>处理中</span><strong>{{ qualityReport.processing }}</strong></div>
+          <div class="quality-item"><span>平均耗时</span><strong>{{ avgDuration }}</strong></div>
+        </div>
+        <div v-if="qualityReport?.recent_failures.length" class="failure-list">
+          <div v-for="item in qualityReport.recent_failures" :key="item.id" class="failure-item" @click="router.push('/tasks?status=failed')">
+            <span>{{ item.filename }}</span>
+            <small>{{ item.error_message || '解析失败' }}</small>
+          </div>
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="recent-card">
+        <template #header>
           <span class="card-title">最近任务</span>
         </template>
         <el-table :data="recentTasks" stripe size="small">
@@ -343,6 +364,14 @@ onUnmounted(() => {
 .rate-text strong { font-size: 15px; }
 
 .recent-card { border-radius: 12px; flex: 1; }
+.quality-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.quality-item { padding: 12px; background: #f7f8fa; border-radius: 8px; display: flex; flex-direction: column; gap: 6px; }
+.quality-item span { font-size: 12px; color: #909399; }
+.quality-item strong { font-size: 18px; color: #303133; }
+.failure-list { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.failure-item { padding: 8px 10px; background: #fef0f0; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.failure-item span { font-size: 13px; color: #303133; }
+.failure-item small { color: #f56c6c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trend-card { border-radius: 12px; }
 .trend-chart { height: 200px; }
 .pie-card { border-radius: 12px; }

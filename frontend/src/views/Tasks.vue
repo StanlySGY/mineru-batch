@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute, useRouter } from 'vue-router'
 import { api, type TaskItem, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError } from '../utils/error'
@@ -43,9 +44,12 @@ const tasks = ref<TaskItem[]>([])
 const total = ref(0)
 const page = ref(1)
 const size = ref(20)
+const route = useRoute()
+const router = useRouter()
 const isMobile = ref(window.innerWidth <= 768)
 const filterStatus = ref('')
 const filterSearch = ref('')
+const filterBatchId = ref(typeof route.query.batch_id === 'string' ? route.query.batch_id : '')
 const loading = ref(false)
 const firstLoad = ref(true)
 const now = ref(Date.now())
@@ -203,6 +207,7 @@ async function loadTasks() {
     const res = await api.listTasks({
       status: filterStatus.value || undefined,
       search: filterSearch.value || undefined,
+      batch_id: filterBatchId.value || undefined,
       page: page.value,
       size: size.value,
     })
@@ -390,6 +395,12 @@ async function handleConvertDoc(row: TaskItem) {
   }
 }
 
+function clearBatchFilter() {
+  filterBatchId.value = ''
+  router.replace({ path: '/tasks', query: { ...route.query, batch_id: undefined } })
+  handleFilterChange()
+}
+
 function handleFilterChange() {
   page.value = 1
   loadTasks()
@@ -459,6 +470,12 @@ const detailTimeline = computed(() => {
 })
 
 let sseDebounce: ReturnType<typeof setTimeout> | null = null
+
+watch(() => route.query.batch_id, (v) => {
+  filterBatchId.value = typeof v === 'string' ? v : ''
+  page.value = 1
+  loadTasks()
+})
 
 watch(tasks, (list) => {
   if (list.some(t => t.status === 'processing')) startClock()
@@ -530,6 +547,10 @@ function checkMobile() {
 
   <el-skeleton v-if="firstLoad" :rows="8" animated />
   <template v-else>
+  <div v-if="filterBatchId" class="batch-filter-bar">
+    <el-tag type="primary" effect="plain">当前批次：{{ filterBatchId }}</el-tag>
+    <el-button size="small" text @click="clearBatchFilter">查看全部任务</el-button>
+  </div>
   <div class="summary-bar">
     <span>共 <strong>{{ total }}</strong> 个任务</span>
     <span class="summary-divider">|</span>
@@ -546,6 +567,7 @@ function checkMobile() {
     <el-table-column prop="original_filename" label="文件名" min-width="180" show-overflow-tooltip sortable>
       <template #default="{ row }">
         <span>{{ row.original_filename }}</span>
+        <el-tag v-if="row.batch_name || row.batch_id" type="primary" size="small" effect="plain" style="margin-left:6px">{{ row.batch_name || '批次' }}</el-tag>
         <el-tag v-if="isDocFile(row.original_filename) && row.pdf_path" type="success" size="small" style="margin-left:6px">已转PDF</el-tag>
         <el-tag v-else-if="isDocFile(row.original_filename)" type="warning" size="small" style="margin-left:6px">待转换</el-tag>
       </template>

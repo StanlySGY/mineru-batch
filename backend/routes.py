@@ -21,7 +21,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from models import (
-    FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel,
+    FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, AppSetting,
     get_db, SessionLocal, add_log,
 )
 
@@ -48,6 +48,140 @@ _SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.pat
 # 工作池：避免 create_task 风暴
 _task_queue: asyncio.Queue[int] = asyncio.Queue()
 _workers: list[asyncio.Task] = []
+
+DEFAULT_SETTINGS = {
+    "defaults": {
+        "backend": "hybrid-http-client",
+        "mineruApi": "http://localhost:8086/file_parse",
+        "serverUrl": "http://localhost:6002/v1",
+        "outputFormat": "md",
+        "parseMethod": "auto",
+        "langList": "ch",
+        "formulaEnable": True,
+        "tableEnable": True,
+        "returnMd": True,
+        "returnMiddleJson": True,
+        "returnModelOutput": True,
+        "returnContentList": False,
+        "returnImages": False,
+        "responseFormatZip": False,
+        "replaceImageUrl": True,
+        "startPageId": 0,
+        "endPageId": 99999,
+        "timeout": 600,
+        "autoConvert": True,
+    },
+    "mineruEndpoints": [
+        {
+            "url": "http://localhost:8086/file_parse",
+            "backend": "hybrid-http-client",
+            "serverUrl": "http://localhost:6002/v1",
+            "enabled": True,
+        }
+    ],
+}
+SETTINGS_KEY = "app_settings"
+MASKED_API_KEY = "********"
+
+
+def _clone_default_settings() -> dict:
+    return json.loads(json.dumps(DEFAULT_SETTINGS))
+
+
+def _settings_from_db(db: Session) -> dict:
+    row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_KEY).first()
+    if not row:
+        return _clone_default_settings()
+    try:
+        data = json.loads(row.value_json)
+    except json.JSONDecodeError:
+        return _clone_default_settings()
+    defaults = {**DEFAULT_SETTINGS["defaults"], **data.get("defaults", {})}
+    endpoints = data.get("mineruEndpoints")
+    if not isinstance(endpoints, list) or not endpoints:
+        endpoints = _clone_default_settings()["mineruEndpoints"]
+    return {"defaults": defaults, "mineruEndpoints": endpoints}
+
+
+def _sanitize_settings(data: dict) -> dict:
+    sanitized = json.loads(json.dumps(data))
+    for ep in sanitized.get("mineruEndpoints", []):
+        key = ep.pop("apiKey", None)
+        ep["hasApiKey"] = bool(key)
+    return sanitized
+
+
+def _validate_endpoint(ep: dict) -> dict:
+    url = str(ep.get("url") or "").strip()
+    server_url = str(ep.get("serverUrl") or "").strip()
+    backend = str(ep.get("backend") or "hybrid-http-client").strip()
+    if not url.startswith(("http://", "https://")):
+        raise HTTPException(400, "MinerU endpoint must be http or https URL")
+    if server_url and not server_url.startswith(("http://", "https://")):
+        raise HTTPException(400, "serverUrl must be http or https URL")
+    if backend not in ("hybrid-http-client", "vlm-http-client"):
+        raise HTTPException(400, "backend is invalid")
+    clean = {
+        "url": url,
+        "backend": backend,
+        "serverUrl": server_url or DEFAULT_SETTINGS["defaults"]["serverUrl"],
+        "enabled": bool(ep.get("enabled", True)),
+    }
+    api_key = ep.get("apiKey")
+    if isinstance(api_key, str) and api_key and api_key != MASKED_API_KEY:
+        clean["apiKey"] = api_key
+    return clean
+
+
+def _validate_settings_payload(payload: dict, current: dict | None = None) -> dict:
+    current = current or _clone_default_settings()
+    raw_defaults = payload.get("defaults") or {}
+    defaults = {**DEFAULT_SETTINGS["defaults"], **raw_defaults}
+    try:
+        defaults["timeout"] = int(defaults.get("timeout", 600))
+        defaults["startPageId"] = int(defaults.get("startPageId", 0))
+        defaults["endPageId"] = int(defaults.get("endPageId", 99999))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "timeout and page range must be integers")
+    if defaults["timeout"] < 10 or defaults["timeout"] > 7200:
+        raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
+    if defaults["startPageId"] < 0 or defaults["endPageId"] < defaults["startPageId"]:
+        raise HTTPException(400, "page range is invalid")
+    if defaults["outputFormat"] not in ("md", "txt", "html"):
+        raise HTTPException(400, "outputFormat is invalid")
+
+    current_by_url = {ep.get("url"): ep for ep in current.get("mineruEndpoints", [])}
+    endpoints = []
+    for ep in payload.get("mineruEndpoints") or []:
+        clean = _validate_endpoint(ep)
+        old_key = current_by_url.get(clean["url"], {}).get("apiKey")
+        if "apiKey" not in clean and old_key:
+            clean["apiKey"] = old_key
+        endpoints.append(clean)
+    if not endpoints:
+        endpoints = _clone_default_settings()["mineruEndpoints"]
+    return {"defaults": defaults, "mineruEndpoints": endpoints}
+
+
+def _save_settings(db: Session, data: dict) -> dict:
+    row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_KEY).first()
+    if not row:
+        row = AppSetting(key=SETTINGS_KEY, value_json="{}")
+        db.add(row)
+    row.value_json = json.dumps(data, ensure_ascii=False)
+    row.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return data
+
+
+def _endpoint_key_from_settings(db: Session, url: str | None) -> str | None:
+    if not url:
+        return None
+    settings = _settings_from_db(db)
+    for ep in settings.get("mineruEndpoints", []):
+        if ep.get("url") == url and ep.get("apiKey"):
+            return ep.get("apiKey")
+    return None
 
 
 def _safe_path(path: str) -> str:
@@ -512,6 +646,18 @@ async def test_connection(body: dict = None):
     return {"ok": ok, "detail": results}
 
 
+@router.get("/settings")
+async def get_settings(db: Session = Depends(get_db)):
+    return _sanitize_settings(_settings_from_db(db))
+
+
+@router.put("/settings")
+async def update_settings(body: dict, db: Session = Depends(get_db)):
+    current = _settings_from_db(db)
+    saved = _save_settings(db, _validate_settings_payload(body or {}, current))
+    return _sanitize_settings(saved)
+
+
 @router.get("/stats")
 async def get_stats(db: Session = Depends(get_db)):
     total = db.query(func.count(FileTask.id)).scalar()
@@ -533,6 +679,38 @@ async def get_stats(db: Session = Depends(get_db)):
         "completed": status_map.get("completed", 0),
         "failed": status_map.get("failed", 0),
         "avg_duration_ms": avg_duration_ms,
+    }
+
+
+@router.get("/reports/quality")
+async def get_quality_report(db: Session = Depends(get_db)):
+    stats = await get_stats(db)
+    done = stats["completed"] + stats["failed"]
+    recent_failed = (
+        db.query(FileTask)
+        .filter(FileTask.status == TaskStatus.FAILED)
+        .order_by(FileTask.id.desc())
+        .limit(5)
+        .all()
+    )
+    return {
+        "total": stats["total"],
+        "completed": stats["completed"],
+        "failed": stats["failed"],
+        "processing": stats["processing"],
+        "pending": stats["pending"],
+        "success_rate": round(stats["completed"] / done * 100, 1) if done else 0,
+        "avg_duration_ms": stats["avg_duration_ms"],
+        "recent_failures": [
+            {
+                "id": t.id,
+                "filename": t.original_filename,
+                "error_message": t.error_message,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            }
+            for t in recent_failed
+        ],
     }
 
 
@@ -599,6 +777,8 @@ async def upload_files(
     relative_paths: str = Form(None),
     webhook_url: str = Form(None),
     api_key: str = Form(None),
+    batch_id: str = Form(None),
+    batch_name: str = Form(None),
     db: Session = Depends(get_db),
 ):
     if output_format not in ("md", "txt", "html"):
@@ -617,6 +797,9 @@ async def upload_files(
         raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
     if _start_page < 0:
         raise HTTPException(400, "start_page_id must be >= 0")
+
+    upload_batch_id = (batch_id or uuid.uuid4().hex).strip()[:64]
+    upload_batch_name = (batch_name or "").strip()[:256] or None
 
     endpoints_list = None
     if mineru_endpoints:
@@ -651,12 +834,15 @@ async def upload_files(
             original_name = rel_paths[idx].replace("/", "_")
 
         ep = _pick_endpoint(endpoints_list) if endpoints_list else None
+        selected_api = ep.get("apiKey") if ep else api_key
+        selected_url = ep["url"] if ep else mineru_api
+        selected_api = _endpoint_key_from_settings(db, selected_url) or selected_api
         task = FileTask(
             original_filename=original_name,
             saved_filename=saved_name,
             file_path=save_path,
             file_size=len(content),
-            mineru_api=ep["url"] if ep else mineru_api,
+            mineru_api=selected_url,
             backend=ep.get("backend", backend) if ep else backend,
             server_url=ep.get("serverUrl", server_url) if ep else server_url,
             parse_method=parse_method,
@@ -675,8 +861,10 @@ async def upload_files(
             output_format=OutputFormat(output_format),
             timeout=_timeout,
             auto_convert_doc=_b(auto_convert),
-            api_key=ep.get("apiKey") if ep else api_key,
+            api_key=selected_api,
             webhook_url=webhook_url,
+            batch_id=upload_batch_id,
+            batch_name=upload_batch_name,
         )
         db.add(task)
         db.commit()
@@ -726,6 +914,7 @@ async def list_tasks(
     search: str = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    batch_id: str = Query(None),
     db: Session = Depends(get_db),
 ):
     q = db.query(FileTask)
@@ -733,6 +922,8 @@ async def list_tasks(
         q = q.filter(FileTask.status == status)
     if search:
         q = q.filter(FileTask.original_filename.ilike(f"%{search}%"))
+    if batch_id:
+        q = q.filter(FileTask.batch_id == batch_id)
     total = q.count()
     items = q.order_by(FileTask.id.desc()).offset((page - 1) * size).limit(size).all()
     return {"total": total, "items": [t.to_dict() for t in items]}

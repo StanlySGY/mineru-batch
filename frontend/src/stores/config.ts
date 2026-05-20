@@ -6,6 +6,7 @@ export interface MineruEndpoint {
   serverUrl: string
   enabled: boolean
   apiKey?: string
+  hasApiKey?: boolean
 }
 
 export interface ConfigState {
@@ -121,11 +122,27 @@ function applyConfigData(data: Partial<ConfigState>) {
   }
 }
 
+function applyServerSettings(settings: { defaults?: Partial<ConfigState>; mineruEndpoints?: MineruEndpoint[] }) {
+  if (settings.defaults) applyConfigData(settings.defaults)
+  if (Array.isArray(settings.mineruEndpoints) && settings.mineruEndpoints.length) {
+    mineruEndpoints.value = settings.mineruEndpoints.map(ep => ({ ...ep }))
+  }
+}
+
+function exportServerSettings() {
+  return {
+    defaults: getCurrentConfig(),
+    mineruEndpoints: mineruEndpoints.value.map(ep => ({ ...ep })),
+  }
+}
+
 export function useConfig() {
   return {
     state,
     mineruEndpoints,
     applyConfigData,
+    applyServerSettings,
+    exportServerSettings,
     resetDefaults,
     getCurrentConfig,
   }
