@@ -13,6 +13,7 @@ WORKDIR /app
 # System deps for LibreOffice (doc→pdf conversion)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer libreoffice-impress libreoffice-calc \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .
