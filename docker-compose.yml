@@ -1,6 +1,14 @@
+# MinerU Batch 部署配置
+# ──────────────────────────────────────────────
+# 更新版本时需修改以下位置：
+#   1. 本文件 image 的 tag（如 v0.1.0 → v0.2.0）
+#   2. VERSION 文件
+#   3. docker-build.sh 中的版本号
+# ──────────────────────────────────────────────
+
 services:
   app:
-    image: mineru-batch:${TAG:?TAG not set — run ./docker-build.sh first}
+    image: mineru-batch:v0.1.0
     ports:
       - "8900:8900"
     volumes:
