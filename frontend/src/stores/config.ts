@@ -8,6 +8,29 @@ export interface MineruEndpoint {
   apiKey?: string
 }
 
+export interface ConfigState {
+  backend: string
+  mineruApi: string
+  serverUrl: string
+  outputFormat: string
+  parseMethod: string
+  langList: string
+  formulaEnable: boolean
+  tableEnable: boolean
+  returnMd: boolean
+  returnMiddleJson: boolean
+  returnModelOutput: boolean
+  returnContentList: boolean
+  returnImages: boolean
+  responseFormatZip: boolean
+  replaceImageUrl: boolean
+  startPageId: number
+  endPageId: number
+  timeout: number
+  autoConvert: boolean
+  [key: string]: string | number | boolean
+}
+
 const LS = {
   backend: 'cfg_backend', mineruApi: 'cfg_mineru_api', serverUrl: 'cfg_server_url',
   mineruEndpoints: 'cfg_mineru_endpoints', outputFormat: 'cfg_output_format',
@@ -43,7 +66,7 @@ const DEFAULTS = {
   autoConvert: true,
 } as const
 
-const state: Record<string, any> = reactive({ ...DEFAULTS })
+const state = reactive<ConfigState>({ ...DEFAULTS })
 
 for (const [k, v] of Object.entries(DEFAULTS)) {
   const raw = localStorage.getItem(LS[k as keyof typeof LS])
@@ -83,11 +106,11 @@ function resetDefaults() {
   mineruEndpoints.value = [{ ...DEFAULT_ENDPOINT }]
 }
 
-function getCurrentConfig(): Record<string, unknown> {
+function getCurrentConfig(): ConfigState {
   return { ...state }
 }
 
-function applyConfigData(data: Record<string, unknown>) {
+function applyConfigData(data: Partial<ConfigState>) {
   console.debug('[config] applyConfigData:', JSON.stringify(data))
   for (const [k, v] of Object.entries(data)) {
     if (k in DEFAULTS && v !== undefined) {

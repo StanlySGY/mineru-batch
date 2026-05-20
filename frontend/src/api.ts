@@ -100,7 +100,7 @@ export interface UploadOptions {
   outputFormat: string
   timeout: number
   autoConvert: boolean
-  webhookUrl?: string
+  apiKey?: string
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -181,6 +181,7 @@ export const api = {
     form.append('output_format', opts.outputFormat)
     form.append('timeout', String(opts.timeout))
     form.append('auto_convert', String(opts.autoConvert))
+    if (opts.apiKey) form.append('api_key', opts.apiKey)
     const startTime = Date.now()
     let lastLoaded = 0
     let lastTime = startTime
@@ -334,7 +335,7 @@ export const api = {
       try {
         const { items } = await api.getTasksSince(lastEventTime)
         if (items.length > 0) onReconnectSync(items)
-      } catch {}
+      } catch (e) { console.warn('[SSE] sync missed tasks failed:', e) }
     }
 
     function connect() {
@@ -353,7 +354,7 @@ export const api = {
           const data = JSON.parse(e.data)
           lastEventTime = new Date().toISOString()
           callback(data)
-        } catch {}
+        } catch (e) { console.warn('[SSE] parse event failed:', e) }
       }
       es.onerror = () => {
         onStatusChange?.(false)

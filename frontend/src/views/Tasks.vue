@@ -172,9 +172,12 @@ watch(previewSearch, () => {
 const detailVisible = ref(false)
 const detailTask = ref<TaskItem | null>(null)
 
+const RETRY_KEEP_ORIGINAL = -1
+const RETRY_CUSTOM = -2
+
 const retryDialogVisible = ref(false)
 const retryTarget = ref<TaskItem | null>(null)
-const retryEndpointIdx = ref(-1) // -1=keep original, -2=custom
+const retryEndpointIdx = ref(RETRY_KEEP_ORIGINAL)
 const retryCustomUrl = ref('')
 const retryCustomServerUrl = ref('')
 
@@ -298,7 +301,7 @@ async function handleConvertAllDocs() {
 
 function handleRetry(row: TaskItem) {
   retryTarget.value = row
-  retryEndpointIdx.value = -1
+  retryEndpointIdx.value = RETRY_KEEP_ORIGINAL
   retryCustomUrl.value = ''
   retryCustomServerUrl.value = ''
   retryDialogVisible.value = true
@@ -306,7 +309,7 @@ function handleRetry(row: TaskItem) {
 
 async function doRetry(row: TaskItem) {
   const opts: { mineruApi?: string; serverUrl?: string } = {}
-  if (retryEndpointIdx.value === -2) {
+  if (retryEndpointIdx.value === RETRY_CUSTOM) {
     // Custom URL
     if (retryCustomUrl.value) opts.mineruApi = retryCustomUrl.value
     if (retryCustomServerUrl.value) opts.serverUrl = retryCustomServerUrl.value
@@ -724,7 +727,7 @@ function checkMobile() {
       重试任务：<strong>{{ retryTarget.original_filename }}</strong>
     </p>
     <el-radio-group v-model="retryEndpointIdx" class="retry-endpoint-list">
-      <el-radio :value="-1" border style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px">
+      <el-radio :value="RETRY_KEEP_ORIGINAL" border style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px">
         <div>
           <div style="font-weight:500">保持原节点</div>
           <div style="font-size:12px;color:#909399;margin-top:2px">{{ retryTarget.mineru_api }}</div>
@@ -742,7 +745,7 @@ function checkMobile() {
           <div style="font-size:12px;color:#909399;margin-top:2px">{{ ep.url }}</div>
         </div>
       </el-radio>
-      <el-radio :value="-2" border style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px">
+      <el-radio :value="RETRY_CUSTOM" border style="margin-bottom:8px;width:100%;height:auto;padding:12px 16px">
         <div>
           <div style="font-weight:500">使用其他节点</div>
           <div style="font-size:12px;color:#909399;margin-top:2px">输入自定义 MinerU 服务地址</div>
@@ -751,7 +754,7 @@ function checkMobile() {
     </el-radio-group>
 
     <transition name="fade">
-      <div v-if="retryEndpointIdx === -2" class="custom-endpoint-form">
+      <div v-if="retryEndpointIdx === RETRY_CUSTOM" class="custom-endpoint-form">
         <el-input v-model="retryCustomUrl" placeholder="MinerU API 地址 (file_parse)" style="margin-bottom:8px" />
         <el-input v-model="retryCustomServerUrl" placeholder="大模型服务地址 (server_url, 可选)" />
       </div>
@@ -761,7 +764,7 @@ function checkMobile() {
     <el-button @click="retryDialogVisible = false">取消</el-button>
     <el-button
       type="warning"
-      :disabled="retryEndpointIdx === -2 && !retryCustomUrl"
+      :disabled="retryEndpointIdx === RETRY_CUSTOM && !retryCustomUrl"
       @click="doRetry(retryTarget!); retryDialogVisible = false"
     >
       重试

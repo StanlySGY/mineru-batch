@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { api } from '../api'
+import { api, type TaskItem } from '../api'
 import { formatTime } from '../utils/format'
 import { useConfig } from '../stores/config'
 import * as echarts from 'echarts/core'
@@ -15,7 +15,7 @@ echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponen
 const router = useRouter()
 const cfg = useConfig()
 const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, avg_duration_ms: 0 })
-const recentTasks = ref<any[]>([])
+const recentTasks = ref<TaskItem[]>([])
 const loading = ref(false)
 const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
@@ -77,7 +77,8 @@ async function loadStats() {
     stats.value = statsRes
     recentTasks.value = recentRes.items
     if (storRes) storageInfo.value = storRes
-  } catch {
+  } catch (e) {
+    console.error('[Dashboard] loadStats failed:', e)
   } finally {
     loading.value = false
     firstLoad.value = false
@@ -101,7 +102,7 @@ async function loadTrend() {
         { name: '失败', type: 'bar', data: data.map(d => d.failed), itemStyle: { color: '#f56c6c' }, barMaxWidth: 24 },
       ],
     })
-  } catch {}
+  } catch (e) { console.warn('[Dashboard] loadTrend failed:', e) }
 }
 
 async function loadFiletypes() {
@@ -126,7 +127,7 @@ async function loadFiletypes() {
         data: data.map(d => ({ name: d.type, value: d.count })),
       }],
     })
-  } catch {}
+  } catch (e) { console.warn('[Dashboard] loadFiletypes failed:', e) }
 }
 
 function handleCardClick(route: string) {

@@ -598,6 +598,7 @@ async def upload_files(
     auto_convert: str = Form("true"),
     relative_paths: str = Form(None),
     webhook_url: str = Form(None),
+    api_key: str = Form(None),
     db: Session = Depends(get_db),
 ):
     if output_format not in ("md", "txt", "html"):
@@ -674,7 +675,7 @@ async def upload_files(
             output_format=OutputFormat(output_format),
             timeout=_timeout,
             auto_convert_doc=_b(auto_convert),
-            api_key=ep.get("apiKey") if ep else None,
+            api_key=ep.get("apiKey") if ep else api_key,
             webhook_url=webhook_url,
         )
         db.add(task)

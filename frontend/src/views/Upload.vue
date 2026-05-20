@@ -164,7 +164,7 @@ async function handleUpload() {
       outputFormat: sc.outputFormat,
       timeout: sc.timeout,
       autoConvert: sc.autoConvert,
-      webhookUrl: (cfg as any).state?.webhookUrl || undefined,
+      apiKey: selectedEndpoints.value[0]?.apiKey || undefined,
     } as import('../api').UploadOptions
   }
 

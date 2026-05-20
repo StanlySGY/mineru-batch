@@ -43,7 +43,7 @@ onMounted(() => {
     if (resizeTimer) clearTimeout(resizeTimer)
     resizeTimer = setTimeout(checkMobile, 150)
   })
-  api.getConcurrency().then(r => concurrency.value = r.concurrency).catch(() => {})
+  api.getConcurrency().then(r => concurrency.value = r.concurrency).catch(e => console.warn('[Layout] loadConcurrency failed:', e))
   sseClose = api.onTaskEvent(
     () => {},
     (connected) => { sseConnected.value = connected },
