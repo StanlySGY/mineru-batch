@@ -20,8 +20,6 @@ const LABELS: Record<string, string> = {
   startPageId: '起始页码',
   endPageId: '结束页码',
   autoConvert: '自动转PDF',
-  mineruApi: 'MinerU API',
-  serverUrl: 'LLM Server',
   langList: '语言',
 }
 
@@ -63,23 +61,17 @@ function fmtBool(key: string): boolean {
       </div>
     </div>
 
-    <div class="summary-section sec-address">
-      <div class="section-title">服务地址</div>
-      <div class="addr-line">
-        <span class="addr-label">MinerU API</span>
-        <code class="addr-value">{{ fmt('mineruApi') }}</code>
-      </div>
-      <div class="addr-line">
-        <span class="addr-label">LLM Server</span>
-        <code class="addr-value">{{ fmt('serverUrl') }}</code>
-      </div>
-      <div v-if="fmt('langList') && fmt('langList') !== 'ch'" class="addr-line">
-        <span class="addr-label">语言</span>
-        <code class="addr-value">{{ fmt('langList') }}</code>
-      </div>
-      <div v-if="fmt('startPageId') !== '0' || fmt('endPageId') !== '99999'" class="addr-line">
-        <span class="addr-label">页码范围</span>
-        <code class="addr-value">{{ fmt('startPageId') }} — {{ fmt('endPageId') }}</code>
+    <div class="summary-section sec-meta">
+      <div class="section-title">其他</div>
+      <div class="meta-row">
+        <span class="meta-item">
+          <span class="meta-l">语言</span>
+          <span class="meta-v">{{ fmt('langList') }}</span>
+        </span>
+        <span class="meta-item">
+          <span class="meta-l">页码范围</span>
+          <span class="meta-v">{{ fmt('startPageId') }} — {{ fmt('endPageId') }}</span>
+        </span>
       </div>
     </div>
 
@@ -102,8 +94,9 @@ function fmtBool(key: string): boolean {
 .summary-value { font-size: 13px; color: #303133; font-weight: 500; word-break: break-all; }
 .toggle-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .toggle-tag { font-size: 12px; }
-.sec-address .addr-line { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
-.addr-label { font-size: 11px; color: #909399; flex-shrink: 0; min-width: 72px; }
-.addr-value { font-size: 12px; color: #303133; background: #eef0f4; padding: 2px 8px; border-radius: 4px; word-break: break-all; font-family: 'SF Mono', 'Fira Code', monospace; }
+.sec-meta .meta-row { display: flex; gap: 24px; }
+.sec-meta .meta-item { display: flex; flex-direction: column; gap: 1px; }
+.sec-meta .meta-l { font-size: 11px; color: #909399; }
+.sec-meta .meta-v { font-size: 12px; color: #303133; font-weight: 500; }
 .config-hint { text-align: center; padding-top: 2px; }
 </style>
