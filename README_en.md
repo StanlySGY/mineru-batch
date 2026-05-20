@@ -64,7 +64,7 @@ graph TB
 - **Real-time Status Push** — SSE real-time task status push, browser desktop notification support
 - **Markdown Preview** — Built-in rendered preview, source code toggle, full-text search highlighting, async rendering
 - **Task Management** — Batch retry / delete / convert / download, CSV export, one-click apply task parameters
-- **Config Presets** — Save / load commonly used configurations, one-click switch
+- **Parse Scenario Presets** — One-click switch between Academic/Plain Text/OCR presets on upload, auto-override parse parameters
 - **Trend Charts** — Dashboard displays 7-day trends, file type distribution
 - **Storage Cleanup** — One-click cleanup of completed task source files, free disk space
 - **Mobile Responsive** — Responsive layout, sidebar auto-collapse
@@ -112,13 +112,15 @@ Frontend and backend run separately with hot reload:
 - Drag & drop or click to upload, batch support, direct folder drag & drop auto-detection
 - Auto-detect document format (Word/PPT/Excel), optional auto-convert to PDF
 - Real-time upload progress display (speed + estimated remaining time)
-- Config preset quick switch
+- Parse scenario selection: Academic / Plain Text / OCR, auto-override parse parameters
+- Per-batch node selection: pick which MinerU nodes to use for each upload batch, defaults to all enabled nodes
 
 ### Task Management
 
 - Task list supports search, status filter, sort
 - Click task row to view detail drawer (timeline, MinerU parameters, error stack)
 - Batch operations: retry / delete / convert / download
+- Retry with node selection: keep original node, switch to another enabled node, or use a custom URL
 - One-click apply task parameters, quickly reproduce parse config
 - Mobile auto-switch to card layout
 
