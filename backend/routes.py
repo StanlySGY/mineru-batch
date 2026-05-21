@@ -36,6 +36,7 @@ from services.task_service import (
     mark_task_cancelled, is_task_cancelled, unmark_task_cancelled, cancel_task_impl, retry_task_impl,
 )
 from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
+from services.log_service import clear_logs_impl, get_grouped_logs_impl
 
 router = APIRouter()
 
@@ -1283,40 +1284,12 @@ async def list_logs_grouped(
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    task_ids = db.query(ProcessLog.task_id).filter(ProcessLog.task_id.isnot(None)).distinct().order_by(ProcessLog.task_id.desc())
-    all_ids = [t[0] for t in task_ids.all()]
-    total = len(all_ids)
-    paged_ids = all_ids[(page - 1) * size: page * size]
-
-    tasks_map = {}
-    if paged_ids:
-        for t in db.query(FileTask).filter(FileTask.id.in_(paged_ids)).all():
-            tasks_map[t.id] = t
-
-    logs_q = db.query(ProcessLog).filter(ProcessLog.task_id.in_(paged_ids))
-    if level:
-        logs_q = logs_q.filter(ProcessLog.level == level)
-    logs_by_task: dict = {}
-    for log in logs_q.order_by(ProcessLog.id.asc()).all():
-        logs_by_task.setdefault(log.task_id, []).append(log)
-
-    groups = []
-    for tid in paged_ids:
-        task = tasks_map.get(tid)
-        groups.append({
-            "task_id": tid,
-            "filename": task.original_filename if task else f"Task#{tid}",
-            "status": task.status.value if task else "unknown",
-            "created_at": task.created_at.isoformat() if task and task.created_at else None,
-            "logs": [l.to_dict() for l in logs_by_task.get(tid, [])],
-        })
-    return {"total": total, "items": groups}
+    return await get_grouped_logs_impl(db, page, size, level)
 
 
 @router.delete("/logs")
 async def clear_logs(db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    count = db.query(ProcessLog).delete()
-    db.commit()
+    count = clear_logs_impl(db)
     return {"detail": "cleared", "count": count}
 
 
