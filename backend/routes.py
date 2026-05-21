@@ -42,6 +42,7 @@ from services.settings_service import (
     get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
 )
 from services.report_service import get_stats_impl, get_quality_report_impl
+from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
 
 router = APIRouter()
 
@@ -650,12 +651,7 @@ async def task_events():
 
 @router.get("/tasks/since")
 async def tasks_since(since: str = Query(..., description="ISO timestamp"), db: Session = Depends(get_db)):
-    try:
-        cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
-    except ValueError:
-        raise HTTPException(400, "Invalid timestamp format")
-    tasks = db.query(FileTask).filter(FileTask.updated_at >= cutoff).all()
-    return {"items": [t.to_dict() for t in tasks]}
+    return get_tasks_since_impl(db, since)
 
 
 # Constants moved to services.upload_service
@@ -821,16 +817,7 @@ async def list_tasks(
     batch_id: str = Query(None),
     db: Session = Depends(get_db),
 ):
-    q = db.query(FileTask)
-    if status:
-        q = q.filter(FileTask.status == status)
-    if search:
-        q = q.filter(FileTask.original_filename.ilike(f"%{search}%"))
-    if batch_id:
-        q = q.filter(FileTask.batch_id == batch_id)
-    total = q.count()
-    items = q.order_by(FileTask.id.desc()).offset((page - 1) * size).limit(size).all()
-    return {"total": total, "items": [t.to_dict() for t in items]}
+    return list_tasks_impl(db, status, search, page, size, batch_id)
 
 
 @router.delete("/tasks/batch")
@@ -923,10 +910,7 @@ async def batch_download_tasks(ids: str = Query(..., description="comma-separate
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    return task.to_dict()
+    return get_task_impl(db, task_id)
 
 
 @router.delete("/tasks/{task_id}")
