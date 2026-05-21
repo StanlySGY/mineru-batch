@@ -1394,42 +1394,37 @@ async def get_storage_stats():
     }
 
 
+async def _clean_directory(dir_path: str, skip_dotfiles: bool = False) -> int:
+    """清理目录中的所有文件和子目录，返回清理数量"""
+    if not os.path.exists(dir_path):
+        return 0
+    n = 0
+    for f in os.listdir(dir_path):
+        if skip_dotfiles and f.startswith("."):
+            continue
+        fp = os.path.join(dir_path, f)
+        try:
+            if os.path.isfile(fp):
+                await asyncio.to_thread(os.remove, fp)
+                n += 1
+            elif os.path.isdir(fp):
+                await asyncio.to_thread(shutil.rmtree, fp)
+                n += 1
+        except OSError:
+            pass
+    return n
+
+
 @router.post("/storage/clean")
 async def clean_storage(body: dict = None, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     targets = (body or {}).get("targets", [])
     cleaned = {}
     if "outputs" in targets:
-        n = 0
-        for f in os.listdir(OUTPUT_DIR):
-            fp = os.path.join(OUTPUT_DIR, f)
-            try:
-                if os.path.isfile(fp):
-                    await asyncio.to_thread(os.remove, fp)
-                    n += 1
-                elif os.path.isdir(fp):
-                    await asyncio.to_thread(shutil.rmtree, fp)
-                    n += 1
-            except OSError:
-                pass
-        cleaned["outputs"] = n
+        cleaned["outputs"] = await _clean_directory(OUTPUT_DIR)
         db.query(FileTask).filter(FileTask.output_path.isnot(None)).update({"output_path": None})
         db.commit()
     if "converted" in targets:
-        n = 0
-        for f in os.listdir(CONVERT_DIR):
-            if f.startswith("."):
-                continue
-            fp = os.path.join(CONVERT_DIR, f)
-            try:
-                if os.path.isfile(fp):
-                    await asyncio.to_thread(os.remove, fp)
-                    n += 1
-                elif os.path.isdir(fp):
-                    await asyncio.to_thread(shutil.rmtree, fp)
-                    n += 1
-            except OSError:
-                pass
-        cleaned["converted"] = n
+        cleaned["converted"] = await _clean_directory(CONVERT_DIR, skip_dotfiles=True)
     return {"detail": "cleaned", "counts": cleaned}
 
 
