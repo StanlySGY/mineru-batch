@@ -187,19 +187,19 @@ const renderPaneEl = ref<HTMLElement | null>(null)
 let activeScrollingPane: 'editor' | 'render' | null = null
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
 
+const LINE_HEIGHT = 1.6 * 13
+
 const handleEditorScroll = () => {
   if (activeScrollingPane === 'render') return
   if (!editorScrollEl.value || !renderPaneEl.value) return
-  
+
   activeScrollingPane = 'editor'
   const editor = editorScrollEl.value
   const render = renderPaneEl.value
-  const maxEditorScroll = editor.scrollHeight - editor.clientHeight
-  if (maxEditorScroll > 0) {
-    const pct = editor.scrollTop / maxEditorScroll
-    render.scrollTop = pct * (render.scrollHeight - render.clientHeight)
-  }
-  
+
+  const lineNum = Math.floor(editor.scrollTop / LINE_HEIGHT)
+  render.scrollTop = lineNum * LINE_HEIGHT
+
   if (scrollTimeout) clearTimeout(scrollTimeout)
   scrollTimeout = setTimeout(() => {
     activeScrollingPane = null
@@ -209,16 +209,14 @@ const handleEditorScroll = () => {
 const handleRenderScroll = () => {
   if (activeScrollingPane === 'editor') return
   if (!editorScrollEl.value || !renderPaneEl.value) return
-  
+
   activeScrollingPane = 'render'
   const editor = editorScrollEl.value
   const render = renderPaneEl.value
-  const maxRenderScroll = render.scrollHeight - render.clientHeight
-  if (maxRenderScroll > 0) {
-    const pct = render.scrollTop / maxRenderScroll
-    editor.scrollTop = pct * (editor.scrollHeight - editor.clientHeight)
-  }
-  
+
+  const lineNum = Math.floor(render.scrollTop / LINE_HEIGHT)
+  editor.scrollTop = lineNum * LINE_HEIGHT
+
   if (scrollTimeout) clearTimeout(scrollTimeout)
   scrollTimeout = setTimeout(() => {
     activeScrollingPane = null
@@ -1073,7 +1071,7 @@ function checkMobile() {
 .search-count { font-size: 12px; color: #909399; white-space: nowrap; }
 :deep(.search-highlight) { background: #ffe58f; padding: 1px 2px; border-radius: 2px; }
 :deep(.search-highlight.active) { background: #ffc53d; box-shadow: 0 0 0 2px #faad14; }
-.md-preview { line-height: 1.8; color: #303133; }
+.md-preview { line-height: 1.6; color: #303133; font-size: 13px; }
 .md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 16px; }
 .md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 14px; }
 .md-preview :deep(h3) { font-size: 1.15em; margin-top: 12px; }
@@ -1162,6 +1160,8 @@ function checkMobile() {
   border: 1px solid #e4e7ed;
   padding: 12px;
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02);
+  line-height: 1.6;
+  font-size: 13px;
 }
 .split-editor-pane {
   padding: 0;
