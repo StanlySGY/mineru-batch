@@ -187,8 +187,6 @@ const renderPaneEl = ref<HTMLElement | null>(null)
 let activeScrollingPane: 'editor' | 'render' | null = null
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
 
-const LINE_HEIGHT = 1.6 * 13
-
 const handleEditorScroll = () => {
   if (activeScrollingPane === 'render') return
   if (!editorScrollEl.value || !renderPaneEl.value) return
@@ -197,8 +195,13 @@ const handleEditorScroll = () => {
   const editor = editorScrollEl.value
   const render = renderPaneEl.value
 
-  const lineNum = Math.floor(editor.scrollTop / LINE_HEIGHT)
-  render.scrollTop = lineNum * LINE_HEIGHT
+  const editorScrollableHeight = editor.scrollHeight - editor.clientHeight
+  const renderScrollableHeight = render.scrollHeight - render.clientHeight
+
+  if (editorScrollableHeight > 0 && renderScrollableHeight > 0) {
+    const scrollRatio = editor.scrollTop / editorScrollableHeight
+    render.scrollTop = scrollRatio * renderScrollableHeight
+  }
 
   if (scrollTimeout) clearTimeout(scrollTimeout)
   scrollTimeout = setTimeout(() => {
@@ -214,8 +217,13 @@ const handleRenderScroll = () => {
   const editor = editorScrollEl.value
   const render = renderPaneEl.value
 
-  const lineNum = Math.floor(render.scrollTop / LINE_HEIGHT)
-  editor.scrollTop = lineNum * LINE_HEIGHT
+  const editorScrollableHeight = editor.scrollHeight - editor.clientHeight
+  const renderScrollableHeight = render.scrollHeight - render.clientHeight
+
+  if (editorScrollableHeight > 0 && renderScrollableHeight > 0) {
+    const scrollRatio = render.scrollTop / renderScrollableHeight
+    editor.scrollTop = scrollRatio * editorScrollableHeight
+  }
 
   if (scrollTimeout) clearTimeout(scrollTimeout)
   scrollTimeout = setTimeout(() => {
@@ -1072,18 +1080,21 @@ function checkMobile() {
 :deep(.search-highlight) { background: #ffe58f; padding: 1px 2px; border-radius: 2px; }
 :deep(.search-highlight.active) { background: #ffc53d; box-shadow: 0 0 0 2px #faad14; }
 .md-preview { line-height: 1.6; color: #303133; font-size: 13px; }
-.md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 8px; margin-top: 16px; }
-.md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 6px; margin-top: 14px; }
-.md-preview :deep(h3) { font-size: 1.15em; margin-top: 12px; }
+.md-preview :deep(h1) { font-size: 1.5em; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin: 8px 0 4px 0; }
+.md-preview :deep(h2) { font-size: 1.3em; border-bottom: 1px solid #eee; padding-bottom: 3px; margin: 6px 0 3px 0; }
+.md-preview :deep(h3) { font-size: 1.15em; margin: 4px 0 2px 0; }
+.md-preview :deep(p) { margin: 2px 0; }
 .md-preview :deep(code) { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
-.md-preview :deep(pre) { background: #f5f7fa; padding: 12px; border-radius: 6px; overflow-x: auto; }
+.md-preview :deep(pre) { background: #f5f7fa; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 4px 0; }
 .md-preview :deep(pre code) { background: none; padding: 0; }
-.md-preview :deep(blockquote) { border-left: 4px solid #ddd; padding-left: 12px; color: #666; margin: 8px 0; }
-.md-preview :deep(table) { border-collapse: collapse; margin: 8px 0; }
-.md-preview :deep(th), .md-preview :deep(td) { border: 1px solid #ddd; padding: 6px 10px; }
+.md-preview :deep(blockquote) { border-left: 4px solid #ddd; padding-left: 8px; color: #666; margin: 4px 0; }
+.md-preview :deep(table) { border-collapse: collapse; margin: 4px 0; }
+.md-preview :deep(th), .md-preview :deep(td) { border: 1px solid #ddd; padding: 4px 8px; }
 .md-preview :deep(th) { background: #f5f7fa; }
-.md-preview :deep(img) { margin: 8px 0; border-radius: 4px; max-width: 100%; }
-.md-preview :deep(hr) { border: none; border-top: 1px solid #ddd; margin: 16px 0; }
+.md-preview :deep(img) { margin: 4px 0; border-radius: 4px; max-width: 100%; }
+.md-preview :deep(hr) { border: none; border-top: 1px solid #ddd; margin: 4px 0; }
+.md-preview :deep(ul), .md-preview :deep(ol) { margin: 2px 0; padding-left: 20px; }
+.md-preview :deep(li) { margin: 1px 0; }
 .text-preview { white-space: pre-wrap; word-break: break-all; font-size: 13px; line-height: 1.7; margin: 0; }
 .task-table { cursor: pointer; }
 .detail-row { display: flex; gap: 16px; }
