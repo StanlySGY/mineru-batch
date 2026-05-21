@@ -43,6 +43,7 @@ from services.settings_service import (
 )
 from services.report_service import get_stats_impl, get_quality_report_impl
 from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
+from services.batch_service import batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl, batch_download_tasks_impl
 
 router = APIRouter()
 
@@ -822,85 +823,22 @@ async def list_tasks(
 
 @router.delete("/tasks/batch")
 async def batch_delete_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
-    if not id_list:
-        return {"detail": "batch deleted", "count": 0}
-    tasks = db.query(FileTask).filter(FileTask.id.in_(id_list)).all()
-    for task in tasks:
-        await asyncio.to_thread(_safe_remove, task.file_path)
-        await asyncio.to_thread(_safe_remove, task.output_path)
-        await asyncio.to_thread(_safe_remove, task.pdf_path)
-        db.delete(task)
-    db.commit()
-    return {"detail": "batch deleted", "count": len(tasks)}
+    return await batch_delete_tasks_impl(db, ids, _safe_remove)
 
 
 @router.post("/tasks/batch/retry")
 async def batch_retry_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
-    if not id_list:
-        return {"detail": "batch retried", "count": 0}
-    tasks = db.query(FileTask).filter(FileTask.id.in_(id_list), FileTask.status.in_((TaskStatus.FAILED, TaskStatus.COMPLETED))).all()
-    for task in tasks:
-        if task.output_path and os.path.exists(task.output_path):
-            os.remove(task.output_path)
-        task.output_path = None
-        task.status = TaskStatus.PENDING
-        task.error_message = None
-        add_log(f"批量重试", task_id=task.id)
-        _enqueue_task(task.id)
-    db.commit()
-    return {"detail": "batch retried", "count": len(tasks)}
+    return await batch_retry_tasks_impl(db, ids, _enqueue_task)
 
 
 @router.post("/tasks/batch/convert")
 async def batch_convert_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
-    if not id_list:
-        return {"detail": "batch converted", "count": 0}
-    tasks = db.query(FileTask).filter(FileTask.id.in_(id_list)).all()
-    converted = 0
-    for task in tasks:
-        if _is_doc_file(task.original_filename) and not task.pdf_path:
-            try:
-                pdf_path = await _convert_to_pdf(task.file_path, task.id)
-                task.pdf_path = pdf_path
-                task.auto_convert_doc = True
-                db.commit()
-                add_log(f"批量转换完成，开始解析", task_id=task.id)
-                _enqueue_task(task.id)
-                converted += 1
-            except Exception as e:
-                add_log(f"批量转换失败: {e}", task_id=task.id, level="error")
-    return {"detail": "batch converted", "count": converted}
+    return await batch_convert_tasks_impl(db, ids, _is_doc_file, _convert_to_pdf, _enqueue_task)
 
 
 @router.get("/tasks/batch/download")
 async def batch_download_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db)):
-    id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
-    if not id_list:
-        raise HTTPException(400, "No valid task IDs")
-    tasks = db.query(FileTask).filter(FileTask.id.in_(id_list), FileTask.status == TaskStatus.COMPLETED).all()
-    if not tasks:
-        raise HTTPException(400, "No completed tasks found")
-    valid = [t for t in tasks if t.output_path and os.path.exists(t.output_path)]
-    if not valid:
-        raise HTTPException(404, "No output files found on disk")
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for t in valid:
-            stem = _sanitize_filename(t.original_filename)
-            if os.path.isdir(t.output_path):
-                for root, _, files in os.walk(t.output_path):
-                    for fn in files:
-                        fp = os.path.join(root, fn)
-                        arc = os.path.join(stem, os.path.relpath(fp, t.output_path))
-                        zf.write(fp, arc)
-            else:
-                ext = os.path.splitext(t.output_path)[1] or ".md"
-                arc_name = f"{stem}_{t.id}{ext}"
-                zf.write(t.output_path, arc_name)
-    buf.seek(0)
+    buf = batch_download_tasks_impl(db, ids)
     return StreamingResponse(
         buf,
         media_type="application/zip",
