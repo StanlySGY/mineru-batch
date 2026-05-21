@@ -49,6 +49,7 @@ from services.task_management_service import delete_task_impl, update_task_impl
 from services.system_service import test_connection_impl
 from services.document_service import convert_doc_to_pdf_impl
 from services.storage_stats_service import get_storage_stats_impl
+from services.concurrency_service import get_concurrency_impl, validate_concurrency
 
 router = APIRouter()
 
@@ -574,16 +575,14 @@ async def _process_task(task_id: int):
 
 @router.get("/concurrency")
 async def get_concurrency():
-    return {"concurrency": _max_concurrency}
+    return get_concurrency_impl(_max_concurrency)
 
 
 @router.put("/concurrency")
 async def set_concurrency_endpoint(body: dict, _: None = Depends(require_admin)):
-    n = body.get("concurrency", 5)
-    if not isinstance(n, int) or n < 1 or n > 20:
-        raise HTTPException(400, "concurrency must be 1-20")
+    n = validate_concurrency(body.get("concurrency", 5))
     set_concurrency(n)
-    return {"concurrency": _max_concurrency}
+    return get_concurrency_impl(_max_concurrency)
 
 
 @router.post("/test-connection")
