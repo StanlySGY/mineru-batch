@@ -146,7 +146,7 @@ class TestUploadValidation:
 
     def test_rejects_oversized_file(self, client):
         big = b"x" * 101
-        with patch("routes.MAX_FILE_SIZE", 100):
+        with patch("services.upload_service.MAX_FILE_SIZE", 100):
             resp = client.post("/api/upload", files=[
                 ("files", ("big.pdf", big, "application/pdf")),
             ])

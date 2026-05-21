@@ -65,7 +65,7 @@ def client(engine, db_session, tmp_dirs):
         patch.object(routes_module, "SessionLocal", test_session_factory),
         patch("models.SessionLocal", test_session_factory),
         patch.object(routes_module, "_task_semaphore", asyncio.Semaphore(5)),
-        patch.object(routes_module, "_cancelled_tasks", set()),
+        patch("services.task_service._cancelled_tasks", set()),
         patch.object(routes_module, "_sse_subscribers", []),
     ]
     for p in patches:
