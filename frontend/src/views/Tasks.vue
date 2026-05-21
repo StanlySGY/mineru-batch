@@ -1165,11 +1165,11 @@ function checkMobile() {
   flex: 1;
   min-width: 0;
   height: 100%;
-  overflow-y: auto;
+  overflow-y: scroll;
+  overflow-x: hidden;
   border-radius: 6px;
   background: #ffffff;
   border: 1px solid #e4e7ed;
-  padding: 12px;
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02);
   line-height: 1.6;
   font-size: 13px;
@@ -1179,11 +1179,15 @@ function checkMobile() {
   display: flex;
   flex-direction: column;
 }
+.split-render-pane {
+  padding: 12px;
+}
 .split-editor-pane :deep(.el-textarea), .split-editor-pane :deep(.el-textarea__inner) {
   height: 100% !important;
   border: none;
   box-shadow: none;
   resize: none;
+  overflow: hidden;
   font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
   font-size: 13px;
   line-height: 1.6;
