@@ -14,7 +14,6 @@ import socket
 from urllib.parse import urlparse
 import aiofiles
 import httpx
-import json as _json
 import html
 import markdown
 from pathlib import Path
@@ -94,6 +93,32 @@ DEFAULT_SETTINGS = {
 SETTINGS_KEY = "app_settings"
 MASKED_API_KEY = "********"
 BLOCKED_URL_HOSTS = {"localhost", "localhost.localdomain"}
+
+_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>{title}</title>
+<style>
+body{{max-width:900px;margin:40px auto;font-family:system-ui,sans-serif;line-height:1.8;color:#333;padding:0 20px}}
+h1,h2,h3{{margin-top:24px}}h1{{font-size:1.6em;border-bottom:1px solid #ddd;padding-bottom:8px}}
+h2{{font-size:1.3em}}h3{{font-size:1.1em}}
+code{{background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:0.9em}}
+pre{{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto}}
+pre code{{background:none;padding:0}}
+table{{border-collapse:collapse;margin:16px 0}}th,td{{border:1px solid #ddd;padding:8px 12px}}th{{background:#f8f8f8}}
+blockquote{{border-left:4px solid #ddd;padding-left:16px;color:#666;margin:12px 0}}
+img{{max-width:100%;border-radius:4px}}
+</style></head><body>
+{md_html}
+</body></html>"""
+
+
+def _find_content_in_bundle(bundle_dir: str) -> str:
+    for root, _, files in os.walk(bundle_dir):
+        for fn in files:
+            if fn.endswith(".md") or fn.endswith(".txt"):
+                with open(os.path.join(root, fn), "r", encoding="utf-8") as f:
+                    return f.read()
+    return ""
 
 
 def _is_public_ip(addr: str) -> bool:
@@ -298,7 +323,7 @@ _sse_lock = asyncio.Lock()
 
 
 def _emit_event(event_type: str, task_id: int, data: dict = None):
-    payload = _json.dumps({"type": event_type, "task_id": task_id, **(data or {})}, ensure_ascii=False)
+    payload = json.dumps({"type": event_type, "task_id": task_id, **(data or {})}, ensure_ascii=False)
     for q in _sse_subscribers:
         try:
             q.put_nowait(payload)
@@ -506,24 +531,7 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
                 _safe_extract_zip(zip_path, bundle_dir)
                 os.remove(zip_path)
                 add_log(f"ZIP 已解压到 {bundle_dir}", task_id=task_id)
-                md_content = ""
-                for root, _, files in os.walk(bundle_dir):
-                    for fn in files:
-                        if fn.endswith(".md"):
-                            with open(os.path.join(root, fn), "r", encoding="utf-8") as mf:
-                                md_content = mf.read()
-                            break
-                    if md_content:
-                        break
-                if not md_content:
-                    for root, _, files in os.walk(bundle_dir):
-                        for fn in files:
-                            if fn.endswith(".txt"):
-                                with open(os.path.join(root, fn), "r", encoding="utf-8") as mf:
-                                    md_content = mf.read()
-                                break
-                        if md_content:
-                            break
+                md_content = _find_content_in_bundle(bundle_dir)
                 return {"_bundle_dir": bundle_dir, "results": {os.path.splitext(task.original_filename)[0]: {"md_content": md_content}}}
             return resp.json()
     except httpx.ConnectError as e:
@@ -624,23 +632,7 @@ def _process_task_sync(task_id: int):
                 extensions=['tables', 'fenced_code', 'codehilite', 'toc'],
             )
             escaped_title = html.escape(original_stem)
-            output_content = (
-                '<!DOCTYPE html>\n<html lang="zh-CN"><head><meta charset="utf-8">'
-                f'<title>{escaped_title}</title>'
-                '<style>'
-                'body{max-width:900px;margin:40px auto;font-family:system-ui,sans-serif;line-height:1.8;color:#333;padding:0 20px}'
-                'h1,h2,h3{margin-top:24px}h1{font-size:1.6em;border-bottom:1px solid #ddd;padding-bottom:8px}'
-                'h2{font-size:1.3em}h3{font-size:1.1em}'
-                'code{background:#f4f4f4;padding:2px 6px;border-radius:3px;font-size:0.9em}'
-                'pre{background:#f4f4f4;padding:16px;border-radius:6px;overflow-x:auto}'
-                'pre code{background:none;padding:0}'
-                'table{border-collapse:collapse;margin:16px 0}th,td{border:1px solid #ddd;padding:8px 12px}th{background:#f8f8f8}'
-                'blockquote{border-left:4px solid #ddd;padding-left:16px;color:#666;margin:12px 0}'
-                'img{max-width:100%;border-radius:4px}'
-                '</style></head><body>'
-                f'{md_html}'
-                '</body></html>'
-            )
+            output_content = _HTML_TEMPLATE.format(title=escaped_title, md_html=md_html)
 
         if bundle_dir and os.path.isdir(bundle_dir):
             final_bundle = os.path.join(OUTPUT_DIR, f"{task.id}_{original_stem}")
@@ -807,7 +799,7 @@ async def task_events():
         async with _sse_lock:
             _sse_subscribers.append(q)
         try:
-            yield f"data: {_json.dumps({'type': 'connected'})}\n\n"
+            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
             while True:
                 try:
                     msg = await asyncio.wait_for(q.get(), timeout=30)
