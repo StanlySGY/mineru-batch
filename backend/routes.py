@@ -38,6 +38,9 @@ from services.task_service import (
 from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
 from services.log_service import clear_logs_impl, get_grouped_logs_impl
 from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
+from services.settings_service import (
+    get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
+)
 
 router = APIRouter()
 
@@ -68,39 +71,6 @@ _SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.pat
 _task_queue: asyncio.PriorityQueue[tuple[int, int]] = asyncio.PriorityQueue()
 _workers: list[asyncio.Task] = []
 
-DEFAULT_SETTINGS = {
-    "defaults": {
-        "backend": "hybrid-http-client",
-        "mineruApi": "http://localhost:8086/file_parse",
-        "serverUrl": "http://localhost:6002/v1",
-        "outputFormat": "md",
-        "parseMethod": "auto",
-        "langList": "ch",
-        "formulaEnable": True,
-        "tableEnable": True,
-        "returnMd": True,
-        "returnMiddleJson": True,
-        "returnModelOutput": True,
-        "returnContentList": False,
-        "returnImages": False,
-        "responseFormatZip": False,
-        "replaceImageUrl": True,
-        "startPageId": 0,
-        "endPageId": 99999,
-        "timeout": 600,
-        "autoConvert": True,
-    },
-    "mineruEndpoints": [
-        {
-            "url": "http://localhost:8086/file_parse",
-            "backend": "hybrid-http-client",
-            "serverUrl": "http://localhost:6002/v1",
-            "enabled": True,
-        }
-    ],
-}
-SETTINGS_KEY = "app_settings"
-MASKED_API_KEY = "********"
 BLOCKED_URL_HOSTS = {"localhost", "localhost.localdomain"}
 
 _HTML_TEMPLATE = """<!DOCTYPE html>
@@ -171,101 +141,6 @@ def require_admin(x_admin_api_key: str | None = Header(None)):
         raise HTTPException(401, "Admin authorization required")
 
 
-def _clone_default_settings() -> dict:
-    return json.loads(json.dumps(DEFAULT_SETTINGS))
-
-
-def _settings_from_db(db: Session) -> dict:
-    row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_KEY).first()
-    if not row:
-        return _clone_default_settings()
-    try:
-        data = json.loads(row.value_json)
-    except json.JSONDecodeError:
-        return _clone_default_settings()
-    defaults = {**DEFAULT_SETTINGS["defaults"], **data.get("defaults", {})}
-    endpoints = data.get("mineruEndpoints")
-    if not isinstance(endpoints, list) or not endpoints:
-        endpoints = _clone_default_settings()["mineruEndpoints"]
-    return {"defaults": defaults, "mineruEndpoints": endpoints}
-
-
-def _sanitize_settings(data: dict) -> dict:
-    sanitized = json.loads(json.dumps(data))
-    for ep in sanitized.get("mineruEndpoints", []):
-        key = ep.pop("apiKey", None)
-        ep["hasApiKey"] = bool(key)
-    return sanitized
-
-
-def _validate_endpoint(ep: dict) -> dict:
-    url = _validate_external_url(ep.get("url"), "MinerU endpoint", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-    server_url_raw = str(ep.get("serverUrl") or "").strip()
-    server_url = _validate_external_url(server_url_raw, "serverUrl", allow_private=ALLOW_PRIVATE_ENDPOINTS) if server_url_raw else ""
-    backend = str(ep.get("backend") or "hybrid-http-client").strip()
-    if backend not in ("hybrid-http-client", "vlm-http-client"):
-        raise HTTPException(400, "backend is invalid")
-    clean = {
-        "url": url,
-        "backend": backend,
-        "serverUrl": server_url or DEFAULT_SETTINGS["defaults"]["serverUrl"],
-        "enabled": bool(ep.get("enabled", True)),
-    }
-    api_key = ep.get("apiKey")
-    if isinstance(api_key, str) and api_key and api_key != MASKED_API_KEY:
-        clean["apiKey"] = api_key
-    return clean
-
-
-def _validate_settings_payload(payload: dict, current: dict | None = None) -> dict:
-    current = current or _clone_default_settings()
-    raw_defaults = payload.get("defaults") or {}
-    defaults = {**DEFAULT_SETTINGS["defaults"], **raw_defaults}
-    try:
-        defaults["timeout"] = int(defaults.get("timeout", 600))
-        defaults["startPageId"] = int(defaults.get("startPageId", 0))
-        defaults["endPageId"] = int(defaults.get("endPageId", 99999))
-    except (TypeError, ValueError):
-        raise HTTPException(400, "timeout and page range must be integers")
-    if defaults["timeout"] < 10 or defaults["timeout"] > 7200:
-        raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
-    if defaults["startPageId"] < 0 or defaults["endPageId"] < defaults["startPageId"]:
-        raise HTTPException(400, "page range is invalid")
-    if defaults["outputFormat"] not in ("md", "txt", "html"):
-        raise HTTPException(400, "outputFormat is invalid")
-
-    current_by_url = {ep.get("url"): ep for ep in current.get("mineruEndpoints", [])}
-    endpoints = []
-    for ep in payload.get("mineruEndpoints") or []:
-        clean = _validate_endpoint(ep)
-        old_key = current_by_url.get(clean["url"], {}).get("apiKey")
-        if "apiKey" not in clean and old_key:
-            clean["apiKey"] = old_key
-        endpoints.append(clean)
-    if not endpoints:
-        endpoints = _clone_default_settings()["mineruEndpoints"]
-    return {"defaults": defaults, "mineruEndpoints": endpoints}
-
-
-def _save_settings(db: Session, data: dict) -> dict:
-    row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_KEY).first()
-    if not row:
-        row = AppSetting(key=SETTINGS_KEY, value_json="{}")
-        db.add(row)
-    row.value_json = json.dumps(data, ensure_ascii=False)
-    row.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    return data
-
-
-def _endpoint_key_from_settings(db: Session, url: str | None) -> str | None:
-    if not url:
-        return None
-    settings = _settings_from_db(db)
-    for ep in settings.get("mineruEndpoints", []):
-        if ep.get("url") == url and ep.get("apiKey"):
-            return ep.get("apiKey")
-    return None
 
 
 def _safe_path(path: str) -> str:
@@ -730,14 +605,14 @@ async def test_connection(body: dict = None):
 
 @router.get("/settings")
 async def get_settings(db: Session = Depends(get_db)):
-    return _sanitize_settings(_settings_from_db(db))
+    return sanitize_settings(get_settings_from_db(db))
 
 
 @router.put("/settings")
 async def update_settings(body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    current = _settings_from_db(db)
-    saved = _save_settings(db, _validate_settings_payload(body or {}, current))
-    return _sanitize_settings(saved)
+    current = get_settings_from_db(db)
+    saved = save_settings(db, validate_settings_payload(body or {}, current))
+    return sanitize_settings(saved)
 
 
 @router.get("/stats")
@@ -909,7 +784,7 @@ async def upload_files(
         ep = _pick_endpoint(endpoints_list) if endpoints_list else None
         selected_api = ep.get("apiKey") if ep else api_key
         selected_url = ep["url"] if ep else mineru_api
-        selected_api = _endpoint_key_from_settings(db, selected_url) or selected_api
+        selected_api = get_endpoint_api_key(db, selected_url) or selected_api
 
         task = build_file_task(
             original_name=original_name,
