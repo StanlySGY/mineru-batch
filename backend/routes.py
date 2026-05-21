@@ -30,7 +30,7 @@ from error_codes import ErrorCode, with_code
 from services.upload_service import (
     parse_bool, is_doc_file, validate_upload_params, prepare_batch_info,
     parse_relative_paths, generate_save_path, save_upload_stream, build_file_task,
-    ALLOWED_EXTENSIONS as _UPLOAD_ALLOWED_EXT, MAX_FILE_SIZE as _UPLOAD_MAX_SIZE,
+    upload_files_impl, ALLOWED_EXTENSIONS as _UPLOAD_ALLOWED_EXT, MAX_FILE_SIZE as _UPLOAD_MAX_SIZE,
 )
 from services.task_service import (
     mark_task_cancelled, is_task_cancelled, unmark_task_cancelled, cancel_task_impl, retry_task_impl,
@@ -50,6 +50,7 @@ from services.system_service import test_connection_impl
 from services.document_service import convert_doc_to_pdf_impl
 from services.storage_stats_service import get_storage_stats_impl
 from services.concurrency_service import get_concurrency_impl, validate_concurrency
+from services.events_service import stream_task_events_impl
 
 router = APIRouter()
 
@@ -264,6 +265,24 @@ def _pick_endpoint(endpoints: list[dict]) -> dict:
         idx = _rr_counter % len(enabled)
         _rr_counter += 1
     return enabled[idx]
+
+
+def _validate_endpoint(ep: dict) -> dict:
+    """Validate and normalize a MinerU endpoint configuration."""
+    from services.settings_service import DEFAULT_SETTINGS
+    url = _validate_external_url(ep.get("url"), "MinerU endpoint", allow_private=ALLOW_PRIVATE_ENDPOINTS)
+    server_url_raw = str(ep.get("serverUrl") or "").strip()
+    server_url = _validate_external_url(server_url_raw, "serverUrl", allow_private=ALLOW_PRIVATE_ENDPOINTS) if server_url_raw else ""
+    backend = str(ep.get("backend") or "hybrid-http-client").strip()
+    if backend not in ("hybrid-http-client", "vlm-http-client"):
+        raise HTTPException(400, "backend is invalid")
+    return {
+        "url": url,
+        "backend": backend,
+        "serverUrl": server_url or DEFAULT_SETTINGS["defaults"]["serverUrl"],
+        "apiKey": ep.get("apiKey", ""),
+        "enabled": ep.get("enabled", True),
+    }
 
 
 def _sanitize_filename(name: str) -> str:
@@ -615,23 +634,8 @@ async def get_quality_report(db: Session = Depends(get_db)):
 
 @router.get("/tasks/events")
 async def task_events():
-    async def _stream():
-        q: asyncio.Queue = asyncio.Queue(maxsize=128)
-        async with _sse_lock:
-            _sse_subscribers.append(q)
-        try:
-            yield f"data: {json.dumps({'type': 'connected'})}\n\n"
-            while True:
-                try:
-                    msg = await asyncio.wait_for(q.get(), timeout=30)
-                    yield f"data: {msg}\n\n"
-                except asyncio.TimeoutError:
-                    yield ": keepalive\n\n"
-        finally:
-            async with _sse_lock:
-                if q in _sse_subscribers:
-                    _sse_subscribers.remove(q)
-    return StreamingResponse(_stream(), media_type="text/event-stream")
+    return StreamingResponse(stream_task_events_impl(_sse_subscribers, _sse_lock), media_type="text/event-stream")
+
 
 
 @router.get("/tasks/since")
@@ -677,98 +681,44 @@ async def upload_files(
     priority: str = Form("0"),
     db: Session = Depends(get_db),
 ):
-    if output_format not in ("md", "txt", "html"):
-        raise HTTPException(400, "output_format must be md, txt or html")
-
-    _start_page, _end_page, _timeout, _priority = validate_upload_params(
-        output_format, start_page_id, end_page_id, timeout, priority
+    return await upload_files_impl(
+        db,
+        files,
+        backend,
+        mineru_api,
+        server_url,
+        mineru_endpoints,
+        parse_method,
+        lang_list,
+        formula_enable,
+        table_enable,
+        return_md,
+        return_middle_json,
+        return_model_output,
+        return_content_list,
+        return_images,
+        response_format_zip,
+        replace_image_url,
+        start_page_id,
+        end_page_id,
+        output_format,
+        timeout,
+        auto_convert,
+        relative_paths,
+        webhook_url,
+        api_key,
+        batch_id,
+        batch_name,
+        priority,
+        UPLOAD_DIR,
+        ALLOW_PRIVATE_ENDPOINTS,
+        _validate_endpoint,
+        _validate_external_url,
+        _pick_endpoint,
+        get_endpoint_api_key,
+        _notify_task_change,
+        _enqueue_task,
     )
-
-    upload_batch_id, upload_batch_name = prepare_batch_info(batch_id, batch_name)
-
-    endpoints_list = None
-    if mineru_endpoints:
-        try:
-            raw_endpoints = json.loads(mineru_endpoints)
-            if isinstance(raw_endpoints, list):
-                endpoints_list = [_validate_endpoint(ep) for ep in raw_endpoints]
-        except json.JSONDecodeError:
-            endpoints_list = None
-    if not endpoints_list:
-        mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-        server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-    if webhook_url:
-        webhook_url = _validate_external_url(webhook_url, "webhook_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-
-    results = []
-    rel_paths = parse_relative_paths(relative_paths)
-
-    for idx, file in enumerate(files):
-        ext = os.path.splitext(file.filename or "")[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            raise HTTPException(400, f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
-
-        saved_name, save_path = generate_save_path(file, UPLOAD_DIR)
-        file_size = await save_upload_stream(file, save_path)
-
-        original_name = file.filename
-        if idx < len(rel_paths) and rel_paths[idx] and "/" in rel_paths[idx]:
-            original_name = rel_paths[idx].replace("/", "_")
-
-        ep = _pick_endpoint(endpoints_list) if endpoints_list else None
-        selected_api = ep.get("apiKey") if ep else api_key
-        selected_url = ep["url"] if ep else mineru_api
-        selected_api = get_endpoint_api_key(db, selected_url) or selected_api
-
-        task = build_file_task(
-            original_name=original_name,
-            saved_name=saved_name,
-            save_path=save_path,
-            file_size=file_size,
-            selected_url=selected_url,
-            selected_api=selected_api,
-            backend=ep.get("backend", backend) if ep else backend,
-            server_url=ep.get("serverUrl", server_url) if ep else server_url,
-            parse_method=parse_method,
-            lang_list=lang_list,
-            formula_enable=formula_enable,
-            table_enable=table_enable,
-            return_md=return_md,
-            return_middle_json=return_middle_json,
-            return_model_output=return_model_output,
-            return_content_list=return_content_list,
-            return_images=return_images,
-            response_format_zip=response_format_zip,
-            replace_image_url=replace_image_url,
-            start_page=_start_page,
-            end_page=_end_page,
-            output_format=output_format,
-            timeout=_timeout,
-            auto_convert=auto_convert,
-            webhook_url=webhook_url,
-            batch_id=upload_batch_id,
-            batch_name=upload_batch_name,
-            priority=_priority,
-            endpoint=ep,
-        )
-        db.add(task)
-        db.commit()
-        db.refresh(task)
-        results.append(task.to_dict())
-        add_log(f"文件上传成功: {file.filename}", task_id=task.id)
-        _notify_task_change(task.id, "pending")
-
-        if is_doc_file(file.filename) and not parse_bool(auto_convert):
-            add_log(f"文档格式文件，等待手动转换为 PDF", task_id=task.id)
-
-    for r in results:
-        tid = r["id"]
-        task = db.query(FileTask).filter(FileTask.id == tid).first()
-        if is_doc_file(task.original_filename) and not task.auto_convert_doc:
-            continue
-        _enqueue_task(tid, priority=getattr(task, 'priority', 0) or 0)
-
-    return {"tasks": results}
 
 
 @router.post("/tasks/{task_id}/convert")

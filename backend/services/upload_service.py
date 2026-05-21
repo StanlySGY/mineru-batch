@@ -157,3 +157,134 @@ def build_file_task(
         batch_name=batch_name,
         priority=priority,
     )
+
+
+async def upload_files_impl(
+    db: Session,
+    files: list[UploadFile],
+    backend: str,
+    mineru_api: str,
+    server_url: str,
+    mineru_endpoints: str | None,
+    parse_method: str,
+    lang_list: str,
+    formula_enable: str,
+    table_enable: str,
+    return_md: str,
+    return_middle_json: str,
+    return_model_output: str,
+    return_content_list: str,
+    return_images: str,
+    response_format_zip: str,
+    replace_image_url: str,
+    start_page_id: str,
+    end_page_id: str,
+    output_format: str,
+    timeout: str,
+    auto_convert: str,
+    relative_paths: str | None,
+    webhook_url: str | None,
+    api_key: str | None,
+    batch_id: str | None,
+    batch_name: str | None,
+    priority: str,
+    upload_dir: str,
+    allow_private_endpoints: bool,
+    validate_endpoint_fn,
+    validate_external_url_fn,
+    pick_endpoint_fn,
+    get_endpoint_api_key_fn,
+    notify_task_change_fn,
+    enqueue_task_fn,
+) -> dict:
+    """Upload files and create tasks. Returns dict with tasks list."""
+    _start_page, _end_page, _timeout, _priority = validate_upload_params(
+        output_format, start_page_id, end_page_id, timeout, priority
+    )
+
+    upload_batch_id, upload_batch_name = prepare_batch_info(batch_id, batch_name)
+
+    endpoints_list = None
+    if mineru_endpoints:
+        try:
+            raw_endpoints = json.loads(mineru_endpoints)
+            if isinstance(raw_endpoints, list):
+                endpoints_list = [validate_endpoint_fn(ep) for ep in raw_endpoints]
+        except json.JSONDecodeError:
+            endpoints_list = None
+    if not endpoints_list:
+        mineru_api = validate_external_url_fn(mineru_api, "mineru_api", allow_private=allow_private_endpoints)
+        server_url = validate_external_url_fn(server_url, "server_url", allow_private=allow_private_endpoints)
+    if webhook_url:
+        webhook_url = validate_external_url_fn(webhook_url, "webhook_url", allow_private=allow_private_endpoints)
+
+    results = []
+    rel_paths = parse_relative_paths(relative_paths)
+
+    for idx, file in enumerate(files):
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(400, f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
+
+        saved_name, save_path = generate_save_path(file, upload_dir)
+        file_size = await save_upload_stream(file, save_path)
+
+        original_name = file.filename
+        if idx < len(rel_paths) and rel_paths[idx] and "/" in rel_paths[idx]:
+            original_name = rel_paths[idx].replace("/", "_")
+
+        ep = pick_endpoint_fn(endpoints_list) if endpoints_list else None
+        selected_api = ep.get("apiKey") if ep else api_key
+        selected_url = ep["url"] if ep else mineru_api
+        selected_api = get_endpoint_api_key_fn(db, selected_url) or selected_api
+
+        task = build_file_task(
+            original_name=original_name,
+            saved_name=saved_name,
+            save_path=save_path,
+            file_size=file_size,
+            selected_url=selected_url,
+            selected_api=selected_api,
+            backend=ep.get("backend", backend) if ep else backend,
+            server_url=ep.get("serverUrl", server_url) if ep else server_url,
+            parse_method=parse_method,
+            lang_list=lang_list,
+            formula_enable=formula_enable,
+            table_enable=table_enable,
+            return_md=return_md,
+            return_middle_json=return_middle_json,
+            return_model_output=return_model_output,
+            return_content_list=return_content_list,
+            return_images=return_images,
+            response_format_zip=response_format_zip,
+            replace_image_url=replace_image_url,
+            start_page=_start_page,
+            end_page=_end_page,
+            output_format=output_format,
+            timeout=_timeout,
+            auto_convert=auto_convert,
+            webhook_url=webhook_url,
+            batch_id=upload_batch_id,
+            batch_name=upload_batch_name,
+            priority=_priority,
+            endpoint=ep,
+        )
+        db.add(task)
+        db.commit()
+        db.refresh(task)
+        results.append(task.to_dict())
+        add_log(f"文件上传成功: {file.filename}", task_id=task.id)
+        notify_task_change_fn(task.id, "pending")
+
+        if is_doc_file(file.filename) and not parse_bool(auto_convert):
+            add_log(f"文档格式文件，等待手动转换为 PDF", task_id=task.id)
+
+    for r in results:
+        tid = r["id"]
+        task = db.query(FileTask).filter(FileTask.id == tid).first()
+        if is_doc_file(task.original_filename) and not task.auto_convert_doc:
+            continue
+        enqueue_task_fn(tid, priority=getattr(task, 'priority', 0) or 0)
+
+    return {"tasks": results}
+
