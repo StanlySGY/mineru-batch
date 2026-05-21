@@ -8,7 +8,7 @@ import { useConfig } from '../stores/config'
 import type { MineruEndpoint } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
 import { useRouter } from 'vue-router'
-import type { UploadUserFile, UploadProps } from 'element-plus'
+import type { UploadUserFile } from 'element-plus'
 import ConfigPanel from '../components/ConfigPanel.vue'
 
 const router = useRouter()
