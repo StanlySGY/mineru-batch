@@ -36,7 +36,7 @@ from services.task_service import (
     mark_task_cancelled, is_task_cancelled, unmark_task_cancelled, cancel_task_impl, retry_task_impl,
 )
 from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
-from services.log_service import clear_logs_impl, get_grouped_logs_impl
+from services.log_service import clear_logs_impl, get_grouped_logs_impl, list_logs_impl
 from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
 from services.settings_service import (
     get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
@@ -895,14 +895,7 @@ async def list_logs(
     size: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    q = db.query(ProcessLog)
-    if task_id:
-        q = q.filter(ProcessLog.task_id == task_id)
-    if level:
-        q = q.filter(ProcessLog.level == level)
-    total = q.count()
-    items = q.order_by(ProcessLog.id.desc()).offset((page - 1) * size).limit(size).all()
-    return {"total": total, "items": [l.to_dict() for l in items]}
+    return list_logs_impl(db, task_id, level, page, size)
 
 
 @router.get("/logs/grouped")

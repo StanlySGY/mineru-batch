@@ -3,6 +3,24 @@ from sqlalchemy.orm import Session
 from models import ProcessLog, FileTask, ProcessLog as ProcessLogModel
 
 
+def list_logs_impl(
+    db: Session,
+    task_id: int | None = None,
+    level: str | None = None,
+    page: int = 1,
+    size: int = 50,
+) -> dict:
+    """List logs with optional filtering and pagination."""
+    q = db.query(ProcessLog)
+    if task_id:
+        q = q.filter(ProcessLog.task_id == task_id)
+    if level:
+        q = q.filter(ProcessLog.level == level)
+    total = q.count()
+    items = q.order_by(ProcessLog.id.desc()).offset((page - 1) * size).limit(size).all()
+    return {"total": total, "items": [l.to_dict() for l in items]}
+
+
 def clear_logs_impl(db: Session) -> int:
     """Clear all logs. Returns count of deleted logs."""
     count = db.query(ProcessLog).delete()
