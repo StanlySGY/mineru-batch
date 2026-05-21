@@ -31,6 +31,19 @@ def unmark_task_cancelled(task_id: int):
         _cancelled_tasks.discard(task_id)
 
 
+def check_and_mark_cancelled(task: FileTask, db: Session, cleanup_path: str = None) -> bool:
+    """Check if task is cancelled. If so, mark it FAILED and return True. Cleanup file if provided."""
+    if not is_task_cancelled(task.id):
+        return False
+    if cleanup_path and os.path.exists(cleanup_path):
+        os.remove(cleanup_path)
+    task.status = TaskStatus.FAILED
+    task.error_message = "任务已取消"
+    task.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return True
+
+
 def cancel_task_impl(task_id: int, db: Session) -> dict:
     """Cancel a task. Returns task dict."""
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
