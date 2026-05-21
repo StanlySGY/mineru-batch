@@ -48,6 +48,7 @@ from services.content_service import preview_result_impl, update_task_content_im
 from services.task_management_service import delete_task_impl, update_task_impl
 from services.system_service import test_connection_impl
 from services.document_service import convert_doc_to_pdf_impl
+from services.storage_stats_service import get_storage_stats_impl
 
 router = APIRouter()
 
@@ -916,29 +917,8 @@ async def clear_logs(db: Session = Depends(get_db), _: None = Depends(require_ad
 
 @router.get("/storage")
 async def get_storage_stats():
-    def _dir_size(path: str) -> int:
-        total_bytes = 0
-        if not os.path.exists(path):
-            return 0
-        for dirpath, _, filenames in os.walk(path):
-            for fn in filenames:
-                fp = os.path.join(dirpath, fn)
-                if os.path.isfile(fp):
-                    total_bytes += os.path.getsize(fp)
-        return total_bytes
-
-    uploads_size = _dir_size(UPLOAD_DIR)
-    outputs_size = _dir_size(OUTPUT_DIR)
-    converted_size = _dir_size(CONVERT_DIR)
     db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mineru_batch.db")
-    db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
-    return {
-        "uploads": uploads_size,
-        "outputs": outputs_size,
-        "converted": converted_size,
-        "database": db_size,
-        "total": uploads_size + outputs_size + converted_size + db_size,
-    }
+    return get_storage_stats_impl(UPLOAD_DIR, OUTPUT_DIR, CONVERT_DIR, db_path)
 
 
 @router.post("/storage/clean")
