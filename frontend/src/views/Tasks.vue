@@ -566,6 +566,27 @@ function handleSearch() {
   loadTasks()
 }
 
+let filterSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+
+function handleSearchImmediate() {
+  if (filterSearchDebounceTimer) {
+    clearTimeout(filterSearchDebounceTimer)
+    filterSearchDebounceTimer = null
+  }
+  handleSearch()
+}
+
+watch(filterSearch, (newVal) => {
+  if (filterSearchDebounceTimer) clearTimeout(filterSearchDebounceTimer)
+  if (newVal === '') {
+    handleSearchImmediate()
+  } else {
+    filterSearchDebounceTimer = setTimeout(() => {
+      handleSearch()
+    }, 350)
+  }
+})
+
 function handlePageChange(val: number) {
   page.value = val
   loadTasks()
@@ -673,7 +694,7 @@ function checkMobile() {
     <div class="card-header">
       <span class="card-title">任务列表</span>
       <div class="filter-row">
-        <el-input v-model="filterSearch" placeholder="搜索文件名" clearable style="width:160px" size="small" :prefix-icon="Search" @clear="handleSearch" @keyup.enter="handleSearch" />
+        <el-input v-model="filterSearch" placeholder="搜索文件名" clearable style="width:160px" size="small" :prefix-icon="Search" @clear="handleSearchImmediate" @keyup.enter="handleSearchImmediate" />
         <el-select v-model="filterStatus" placeholder="状态筛选" clearable style="width:130px" size="small" @change="handleFilterChange">
           <el-option label="等待中" value="pending" />
           <el-option label="处理中" value="processing" />
@@ -831,7 +852,7 @@ function checkMobile() {
         <el-tag v-else-if="isEditing" type="warning" size="small">✏️ 正在编辑中...</el-tag>
       </div>
       <div class="preview-search">
-        <el-input v-model="previewSearch" placeholder="搜索内容" clearable size="small" style="width:180px" :prefix-icon="Search" />
+        <el-input v-model="previewSearch" placeholder="搜索内容" clearable size="small" style="width:180px" :prefix-icon="Search" @keyup.enter.exact.prevent="previewSearchNext" @keyup.enter.shift.prevent="previewSearchPrev" />
         <template v-if="previewSearch">
           <span class="search-count">{{ previewSearchMatches ? `${previewSearchIdx}/${previewSearchMatches}` : '无匹配' }}</span>
           <el-button size="small" :icon="ArrowUp" circle @click="previewSearchPrev" :disabled="!previewSearchMatches" />

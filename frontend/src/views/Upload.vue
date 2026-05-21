@@ -24,6 +24,11 @@ const uploadCurrentFile = ref('')
 const abortController = ref<AbortController | null>(null)
 const batchName = ref('')
 
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const folderInputRef = ref<HTMLInputElement | null>(null)
+const isDragging = ref(false)
+const dragCounter = ref(0)
+
 // 解析场景预设（不持久化，仅当前上传会话有效）
 interface ProfileItem { label: string; desc: string; config: Record<string, any> }
 const PROFILES: Record<string, ProfileItem> = {
@@ -106,9 +111,86 @@ async function readEntry(entry: any, path: string): Promise<FileWithPath[]> {
   return []
 }
 
+function triggerFileSelect() {
+  fileInputRef.value?.click()
+}
+
+function triggerFolderSelect() {
+  folderInputRef.value?.click()
+}
+
+function handleDragEnter() {
+  dragCounter.value++
+  isDragging.value = true
+}
+
+function handleDragLeave() {
+  dragCounter.value--
+  if (dragCounter.value <= 0) {
+    isDragging.value = false
+    dragCounter.value = 0
+  }
+}
+
+function addFiles(files: File[]) {
+  const allowed = files.filter(f => {
+    const ext = '.' + f.name.split('.').pop()?.toLowerCase()
+    return ALLOWED_EXTENSIONS.includes(ext)
+  })
+  
+  if (!allowed.length) {
+    ElMessage.warning('没有可识别的合法文件类型')
+    return
+  }
+  
+  const oversized = allowed.filter(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024)
+  if (oversized.length > 0) {
+    ElMessage.error(`有 ${oversized.length} 个文件超过了 ${MAX_FILE_SIZE_MB}MB 的大小限制`)
+    return
+  }
+
+  if (fileList.value.length + allowed.length > 200) {
+    ElMessage.warning('最多 200 个文件')
+    return
+  }
+  
+  for (const f of allowed) {
+    fileList.value.push({ name: (f as FileWithPath)._folderPath || f.name, raw: f } as any)
+  }
+  
+  ElMessage.success(`已添加 ${allowed.length} 个文件`)
+}
+
+function handleFileSelect(e: Event) {
+  const target = e.target as HTMLInputElement
+  if (target.files && target.files.length) {
+    addFiles(Array.from(target.files))
+  }
+  target.value = ''
+}
+
+function handleFolderSelect(e: Event) {
+  const target = e.target as HTMLInputElement
+  if (target.files && target.files.length) {
+    const files = Array.from(target.files).map(f => {
+      const pathFile = f as FileWithPath
+      if (f.webkitRelativePath) {
+        pathFile._folderPath = f.webkitRelativePath
+      }
+      return pathFile
+    })
+    addFiles(files)
+  }
+  target.value = ''
+}
+
 async function handleDrop(e: DragEvent) {
+  isDragging.value = false
+  dragCounter.value = 0
+  
   const items = e.dataTransfer?.items
   if (!items) return
+  
   const droppedFiles: FileWithPath[] = []
   for (const item of Array.from(items)) {
     const entry = (item as any).webkitGetAsEntry?.()
@@ -117,29 +199,9 @@ async function handleDrop(e: DragEvent) {
       droppedFiles.push(...files)
     }
   }
+  
   if (!droppedFiles.length) return
-  const allowed = droppedFiles.filter(f => {
-    const ext = '.' + f.name.split('.').pop()?.toLowerCase()
-    return ALLOWED_EXTENSIONS.includes(ext)
-  })
-  if (!allowed.length) return ElMessage.warning('没有可识别的文件')
-  if (fileList.value.length + allowed.length > 200) return ElMessage.warning('最多 200 个文件')
-  for (const f of allowed) {
-    fileList.value.push({ name: f._folderPath || f.webkitRelativePath || f.name, raw: f } as any)
-  }
-  ElMessage.success(`已添加 ${allowed.length} 个文件`)
-}
-
-const handleExceed: UploadProps['onExceed'] = () => {
-  ElMessage.warning('最多上传 50 个文件')
-}
-
-const beforeUpload: UploadProps['beforeUpload'] = (rawFile) => {
-  if (rawFile.size > MAX_FILE_SIZE_MB * 1024 * 1024) {
-    ElMessage.error(`文件 "${rawFile.name}" 超过 ${MAX_FILE_SIZE_MB}MB 大小限制`)
-    return false
-  }
-  return true
+  addFiles(droppedFiles)
 }
 
 async function handleUpload() {
@@ -328,44 +390,45 @@ onMounted(() => {
         </div>
       </template>
 
-      <div class="upload-drop-zone" @drop.prevent="handleDrop" @dragover.prevent>
-        <el-form label-position="top" class="batch-form">
-          <el-form-item label="批次名称（可选）">
-            <el-input v-model="batchName" maxlength="80" show-word-limit placeholder="例如：产品手册入库-2026-05" />
-          </el-form-item>
-        </el-form>
-        <el-upload
-          v-model:file-list="fileList"
+      <el-form label-position="top" class="batch-form" @submit.prevent>
+        <el-form-item label="批次名称（可选）">
+          <el-input v-model="batchName" maxlength="80" show-word-limit placeholder="例如：产品手册入库-2026-05" />
+        </el-form-item>
+      </el-form>
+
+      <div
+        class="upload-drop-zone"
+        :class="{ 'is-dragging': isDragging }"
+        @dragenter.prevent="handleDragEnter"
+        @dragleave.prevent="handleDragLeave"
+        @dragover.prevent
+        @drop.prevent="handleDrop"
+        @click="triggerFileSelect"
+      >
+        <input
+          type="file"
+          ref="fileInputRef"
           multiple
-          :auto-upload="false"
-          :limit="200"
           :accept="ALLOWED_EXTENSIONS"
-          :on-exceed="handleExceed"
-          :before-upload="beforeUpload"
-          drag
-          class="upload-dragger"
-        >
-          <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
-          <div class="el-upload__text">拖拽文件或文件夹到此处，或 <em>点击选择</em></div>
-          <template #tip>
-            <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB，可直接拖拽文件夹</div>
-          </template>
-        </el-upload>
+          style="display: none;"
+          @change="handleFileSelect"
+        />
+        
+        <el-icon class="el-icon--upload" :size="48"><UploadFilled /></el-icon>
+        <div class="el-upload__text">拖拽文件或文件夹到此处，或 <em>点击选择</em></div>
+        <div class="el-upload__tip">支持 PDF / 图片 / Word / PPT / Excel，单文件最大 200MB，可直接拖拽文件夹</div>
       </div>
 
       <div class="folder-upload-hint">
-        <el-upload
-          v-model:file-list="fileList"
-          :auto-upload="false"
-          :limit="200"
-          :on-exceed="handleExceed"
-          :before-upload="beforeUpload"
+        <input
+          type="file"
+          ref="folderInputRef"
           webkitdirectory
-          class="folder-btn"
-          :show-file-list="false"
-        >
-          <el-button size="small" plain>选择文件夹上传</el-button>
-        </el-upload>
+          multiple
+          style="display: none;"
+          @change="handleFolderSelect"
+        />
+        <el-button size="small" plain @click="triggerFolderSelect">选择文件夹上传</el-button>
       </div>
 
       <div v-if="fileList.length" class="file-list-section">
@@ -498,13 +561,102 @@ onMounted(() => {
 .upload-card { border-radius: 10px; }
 .config-card { border-radius: 10px; overflow-y: auto; }
 .submit-btn { width: 100%; margin-top: 8px; }
-.upload-dragger :deep(.el-upload-dragger) { padding: 40px 0; border-radius: 8px; }
-.upload-drop-zone { position: relative; }
-.upload-drop-zone::after {
-  content: ''; position: absolute; inset: 0; border-radius: 8px;
-  border: 2px dashed transparent; transition: border-color 0.2s; pointer-events: none;
+.upload-drop-zone {
+  position: relative;
+  border: 2px dashed #dcdfe6;
+  border-radius: 16px;
+  padding: 48px 24px;
+  text-align: center;
+  cursor: pointer;
+  background: #ffffff;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
 }
-.upload-drop-zone:hover::after { border-color: #409eff; }
+
+/* 彻底杜绝子元素拖拽闪烁的终极秘籍 */
+.upload-drop-zone * {
+  pointer-events: none;
+}
+
+.upload-drop-zone:hover {
+  border-color: #409eff;
+  background: #fcfdfe;
+  box-shadow: 0 6px 16px rgba(64, 158, 255, 0.05);
+  transform: translateY(-2px);
+}
+
+/* 尊贵流光呼吸效果伪元素 */
+.upload-drop-zone::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 16px;
+  padding: 2px;
+  background: linear-gradient(135deg, #409eff, #67c23a, #e6a23c, #409eff);
+  background-size: 300% 300%;
+  -webkit-mask: 
+     linear-gradient(#fff 0 0) content-box, 
+     linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  animation: flowing-light 4s linear infinite;
+}
+
+.upload-drop-zone.is-dragging {
+  border-color: transparent;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(64, 158, 255, 0.15);
+  transform: scale(1.015);
+}
+
+.upload-drop-zone.is-dragging::before {
+  opacity: 1;
+}
+
+@keyframes flowing-light {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.el-icon--upload {
+  color: #909399;
+  transition: color 0.4s, transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.upload-drop-zone:hover .el-icon--upload,
+.upload-drop-zone.is-dragging .el-icon--upload {
+  color: #409eff;
+  transform: translateY(-4px) scale(1.05);
+}
+
+.el-upload__text {
+  font-size: 14px;
+  color: #606266;
+  user-select: none;
+}
+
+.el-upload__text em {
+  color: #409eff;
+  font-style: normal;
+  font-weight: 500;
+}
+
+.el-upload__tip {
+  font-size: 12px;
+  color: #909399;
+  user-select: none;
+  margin-top: 4px;
+}
 .card-header-row { display: flex; align-items: center; gap: 10px; }
 .card-title { font-weight: 600; }
 
@@ -536,7 +688,7 @@ onMounted(() => {
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
 .form-tip.warn { color: #e6a23c; }
 .upload-status { font-size: 12px; color: #909399; margin-top: 4px; display: flex; align-items: center; gap: 4px; min-height: 18px; }
-.folder-upload-hint { display: flex; justify-content: center; margin-top: 8px; }
+.folder-upload-hint { display: flex; justify-content: center; margin-top: 12px; }
 .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #909399; margin-bottom: 8px; }
 
 .node-list { display: flex; flex-direction: column; gap: 4px; }
