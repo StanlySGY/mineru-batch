@@ -75,41 +75,21 @@ class FileTask(Base):
     logs = relationship("ProcessLog", backref="task", cascade="all, delete-orphan", passive_deletes=True)
 
     def to_dict(self):
-        return {
-            "id": self.id,
-            "original_filename": self.original_filename,
-            "file_size": self.file_size,
-            "pdf_path": self.pdf_path,
-            "timeout": self.timeout,
-            "auto_convert_doc": self.auto_convert_doc,
-            "mineru_api": self.mineru_api,
-            "backend": self.backend,
-            "server_url": self.server_url,
-            "parse_method": self.parse_method,
-            "lang_list": self.lang_list,
-            "formula_enable": self.formula_enable,
-            "table_enable": self.table_enable,
-            "return_md": self.return_md,
-            "return_middle_json": self.return_middle_json,
-            "return_model_output": self.return_model_output,
-            "return_content_list": self.return_content_list,
-            "return_images": self.return_images,
-            "response_format_zip": self.response_format_zip,
-            "replace_image_url": self.replace_image_url,
-            "start_page_id": self.start_page_id,
-            "end_page_id": self.end_page_id,
-            "webhook_url": self.webhook_url,
-            "batch_id": self.batch_id,
-            "batch_name": self.batch_name,
-            "priority": self.priority if hasattr(self, 'priority') else 0,
-            "status": self.status.value if self.status else None,
-            "output_format": self.output_format.value if self.output_format else None,
-            "error_message": self.error_message,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
-            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
+        _EXCLUDE = {"saved_filename", "api_key", "output_path"}
+        result = {}
+        for col in self.__table__.columns:
+            if col.name in _EXCLUDE:
+                continue
+            val = getattr(self, col.name)
+            if val is None:
+                result[col.name] = None
+            elif isinstance(col.type, Enum):
+                result[col.name] = val.value
+            elif isinstance(col.type, DateTime):
+                result[col.name] = val.isoformat()
+            else:
+                result[col.name] = val
+        return result
 
 
 class AppSetting(Base):
