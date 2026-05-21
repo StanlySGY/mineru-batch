@@ -45,6 +45,7 @@ from services.report_service import get_stats_impl, get_quality_report_impl
 from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
 from services.batch_service import batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl, batch_download_tasks_impl
 from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
+from services.task_management_service import delete_task_impl, update_task_impl
 
 router = APIRouter()
 
@@ -854,15 +855,7 @@ async def get_task(task_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    await asyncio.to_thread(_safe_remove, task.file_path)
-    await asyncio.to_thread(_safe_remove, task.output_path)
-    await asyncio.to_thread(_safe_remove, task.pdf_path)
-    db.delete(task)
-    db.commit()
-    return {"detail": "deleted"}
+    return await delete_task_impl(db, task_id, _safe_remove)
 
 
 @router.put("/tasks/{task_id}")
@@ -878,30 +871,10 @@ async def update_task(
     db: Session = Depends(get_db),
     _: None = Depends(require_admin),
 ):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if backend:
-        task.backend = backend
-    if mineru_api:
-        task.mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-    if server_url:
-        task.server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-    if parse_method:
-        task.parse_method = parse_method
-    if lang_list:
-        task.lang_list = lang_list
-    if output_format and output_format in ("md", "txt", "html"):
-        task.output_format = OutputFormat(output_format)
-    if timeout:
-        try:
-            t = int(timeout)
-            task.timeout = max(60, min(t, 3600))
-        except (ValueError, TypeError):
-            raise HTTPException(400, "timeout must be 60-3600")
-    db.commit()
-    db.refresh(task)
-    return task.to_dict()
+    return update_task_impl(
+        db, task_id, backend, mineru_api, server_url, parse_method, lang_list, output_format, timeout,
+        _validate_external_url, ALLOW_PRIVATE_ENDPOINTS
+    )
 
 
 @router.post("/tasks/{task_id}/cancel")
