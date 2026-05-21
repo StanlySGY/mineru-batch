@@ -32,6 +32,9 @@ from services.upload_service import (
     parse_relative_paths, generate_save_path, save_upload_stream, build_file_task,
     ALLOWED_EXTENSIONS as _UPLOAD_ALLOWED_EXT, MAX_FILE_SIZE as _UPLOAD_MAX_SIZE,
 )
+from services.task_service import (
+    mark_task_cancelled, is_task_cancelled, unmark_task_cancelled, cancel_task_impl, retry_task_impl,
+)
 
 router = APIRouter()
 
@@ -55,8 +58,6 @@ _lo_semaphore = asyncio.Semaphore(2)
 _rr_counter = 0
 _rr_lock = threading.Lock()
 _task_semaphore = asyncio.Semaphore(5)
-_cancelled_tasks: set[int] = set()
-_cancel_lock = threading.Lock()
 _max_concurrency = 5
 _SAFE_DIRS = (os.path.normpath(UPLOAD_DIR), os.path.normpath(OUTPUT_DIR), os.path.normpath(CONVERT_DIR))
 
@@ -566,8 +567,7 @@ def _extract_md_from_result(result: dict, original_filename: str) -> str:
 
 
 def _is_cancelled(task_id: int) -> bool:
-    with _cancel_lock:
-        return task_id in _cancelled_tasks
+    return is_task_cancelled(task_id)
 
 
 def _check_and_mark_cancelled(task: FileTask, db, cleanup_path: str = None) -> bool:
@@ -677,8 +677,7 @@ def _process_task_sync(task_id: int):
             _notify_task_change(task_id, "failed", error_message=str(e))
             _send_webhook_sync(task)
     finally:
-        with _cancel_lock:
-            _cancelled_tasks.discard(task_id)
+        unmark_task_cancelled(task_id)
         db.close()
 
 
@@ -1153,19 +1152,7 @@ async def update_task(
 
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if task.status not in (TaskStatus.PENDING, TaskStatus.PROCESSING):
-        raise HTTPException(400, "只能取消等待中或处理中的任务")
-    with _cancel_lock:
-        _cancelled_tasks.add(task_id)
-    task.status = TaskStatus.FAILED
-    task.error_message = "用户取消"
-    task.completed_at = datetime.now(timezone.utc)
-    db.commit()
-    add_log(f"任务已取消", task_id=task_id, level="warn")
-    return task.to_dict()
+    return cancel_task_impl(task_id, db)
 
 
 @router.post("/tasks/{task_id}/retry")
@@ -1176,23 +1163,7 @@ async def retry_task(
     db: Session = Depends(get_db),
     _: None = Depends(require_admin),
 ):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if task.output_path and os.path.exists(task.output_path):
-        os.remove(task.output_path)
-    task.output_path = None
-    task.status = TaskStatus.PENDING
-    task.error_message = None
-    if mineru_api:
-        task.mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-    if server_url:
-        task.server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-    db.commit()
-    add_log(f"任务重新提交", task_id=task_id)
-
-    _enqueue_task(task.id)
-    return task.to_dict()
+    return retry_task_impl(task_id, mineru_api, server_url, db, _validate_external_url, ALLOW_PRIVATE_ENDPOINTS, _enqueue_task)
 
 
 @router.get("/tasks/{task_id}/preview")
