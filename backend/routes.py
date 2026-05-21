@@ -37,6 +37,7 @@ from services.task_service import (
 )
 from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
 from services.log_service import clear_logs_impl, get_grouped_logs_impl
+from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
 
 router = APIRouter()
 
@@ -1335,29 +1336,9 @@ async def clean_completed_sources(db: Session = Depends(get_db), _: None = Depen
 
 @router.get("/stats/trend")
 async def get_stats_trend(days: int = Query(7, ge=1, le=30), db: Session = Depends(get_db)):
-    # 用 Python 层面计算趋势数据，兼容 SQLite 和 PostgreSQL
-    from datetime import timedelta
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    tasks = db.query(FileTask.created_at, FileTask.status).filter(
-        FileTask.created_at >= cutoff
-    ).all()
-    daily: dict[str, dict[str, int]] = {}
-    for created_at, status in tasks:
-        d = created_at.strftime("%Y-%m-%d") if created_at else "unknown"
-        if d not in daily:
-            daily[d] = {"completed": 0, "failed": 0}
-        if status == TaskStatus.COMPLETED:
-            daily[d]["completed"] += 1
-        elif status == TaskStatus.FAILED:
-            daily[d]["failed"] += 1
-    return [{"date": d, "completed": v["completed"], "failed": v["failed"]} for d, v in sorted(daily.items())]
+    return get_stats_trend_impl(db, days)
 
 
 @router.get("/stats/filetypes")
 async def get_filetype_stats(db: Session = Depends(get_db)):
-    tasks = db.query(FileTask.original_filename).all()
-    ext_count: dict[str, int] = {}
-    for (filename,) in tasks:
-        ext = os.path.splitext(filename)[1].lower() or '.unknown'
-        ext_count[ext] = ext_count.get(ext, 0) + 1
-    return [{"type": ext, "count": cnt} for ext, cnt in sorted(ext_count.items(), key=lambda x: -x[1])]
+    return get_filetype_stats_impl(db)
