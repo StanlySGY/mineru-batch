@@ -14,7 +14,7 @@ sleep 1
 # Backend
 echo "[1/2] 启动后端 (FastAPI :8900) ..."
 cd "$ROOT/backend"
-pip install -q fastapi uvicorn sqlalchemy httpx python-multipart aiofiles --break-system-packages 2>/dev/null
+pip install -q fastapi uvicorn sqlalchemy httpx python-multipart aiofiles slowapi markdown --break-system-packages 2>/dev/null
 setsid python3 -m uvicorn main:app --host 0.0.0.0 --port 8900 --log-level info > /tmp/mineru_backend.log 2>&1 &
 BACK_PID=$!
 
