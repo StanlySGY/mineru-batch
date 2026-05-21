@@ -27,6 +27,11 @@ from models import (
     get_db, SessionLocal, add_log,
 )
 from error_codes import ErrorCode, with_code
+from services.upload_service import (
+    parse_bool, is_doc_file, validate_upload_params, prepare_batch_info,
+    parse_relative_paths, generate_save_path, save_upload_stream, build_file_task,
+    ALLOWED_EXTENSIONS as _UPLOAD_ALLOWED_EXT, MAX_FILE_SIZE as _UPLOAD_MAX_SIZE,
+)
 
 router = APIRouter()
 
@@ -419,7 +424,7 @@ async def _save_upload_stream(file: UploadFile, save_path: str) -> int:
 
 
 def _is_doc_file(filename: str) -> bool:
-    return os.path.splitext(filename)[1].lower() in DOC_EXTENSIONS
+    return is_doc_file(filename)
 
 
 def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
@@ -823,10 +828,9 @@ async def tasks_since(since: str = Query(..., description="ISO timestamp"), db: 
     return {"items": [t.to_dict() for t in tasks]}
 
 
-MAX_FILE_SIZE = 200 * 1024 * 1024
-
-ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".webp",
-                      ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
+# Constants moved to services.upload_service
+MAX_FILE_SIZE = _UPLOAD_MAX_SIZE
+ALLOWED_EXTENSIONS = _UPLOAD_ALLOWED_EXT
 
 
 @router.post("/upload")
@@ -865,23 +869,11 @@ async def upload_files(
     if output_format not in ("md", "txt", "html"):
         raise HTTPException(400, "output_format must be md, txt or html")
 
-    def _b(val: str) -> bool:
-        return val.lower() in ("true", "1", "yes")
+    _start_page, _end_page, _timeout, _priority = validate_upload_params(
+        output_format, start_page_id, end_page_id, timeout, priority
+    )
 
-    try:
-        _start_page = int(start_page_id)
-        _end_page = int(end_page_id)
-        _timeout = int(timeout)
-        _priority = max(0, min(2, int(priority)))
-    except ValueError:
-        raise HTTPException(400, "start_page_id, end_page_id, timeout, priority must be integers")
-    if _timeout < 10 or _timeout > 7200:
-        raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
-    if _start_page < 0:
-        raise HTTPException(400, "start_page_id must be >= 0")
-
-    upload_batch_id = (batch_id or uuid.uuid4().hex).strip()[:64]
-    upload_batch_name = (batch_name or "").strip()[:256] or None
+    upload_batch_id, upload_batch_name = prepare_batch_info(batch_id, batch_name)
 
     endpoints_list = None
     if mineru_endpoints:
@@ -898,20 +890,15 @@ async def upload_files(
         webhook_url = _validate_external_url(webhook_url, "webhook_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
 
     results = []
-    rel_paths = []
-    if relative_paths:
-        try:
-            rel_paths = json.loads(relative_paths)
-        except json.JSONDecodeError:
-            rel_paths = []
+    rel_paths = parse_relative_paths(relative_paths)
 
     for idx, file in enumerate(files):
         ext = os.path.splitext(file.filename or "")[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
-        saved_name, save_path = _save_upload(file)
-        file_size = await _save_upload_stream(file, save_path)
+        saved_name, save_path = generate_save_path(file, UPLOAD_DIR)
+        file_size = await save_upload_stream(file, save_path)
 
         original_name = file.filename
         if idx < len(rel_paths) and rel_paths[idx] and "/" in rel_paths[idx]:
@@ -921,35 +908,37 @@ async def upload_files(
         selected_api = ep.get("apiKey") if ep else api_key
         selected_url = ep["url"] if ep else mineru_api
         selected_api = _endpoint_key_from_settings(db, selected_url) or selected_api
-        task = FileTask(
-            original_filename=original_name,
-            saved_filename=saved_name,
-            file_path=save_path,
+
+        task = build_file_task(
+            original_name=original_name,
+            saved_name=saved_name,
+            save_path=save_path,
             file_size=file_size,
-            mineru_api=selected_url,
+            selected_url=selected_url,
+            selected_api=selected_api,
             backend=ep.get("backend", backend) if ep else backend,
             server_url=ep.get("serverUrl", server_url) if ep else server_url,
             parse_method=parse_method,
             lang_list=lang_list,
-            formula_enable=_b(formula_enable),
-            table_enable=_b(table_enable),
-            return_md=_b(return_md),
-            return_middle_json=_b(return_middle_json),
-            return_model_output=_b(return_model_output),
-            return_content_list=_b(return_content_list),
-            return_images=_b(return_images),
-            response_format_zip=_b(response_format_zip),
-            replace_image_url=_b(replace_image_url),
-            start_page_id=_start_page,
-            end_page_id=_end_page,
-            output_format=OutputFormat(output_format),
+            formula_enable=formula_enable,
+            table_enable=table_enable,
+            return_md=return_md,
+            return_middle_json=return_middle_json,
+            return_model_output=return_model_output,
+            return_content_list=return_content_list,
+            return_images=return_images,
+            response_format_zip=response_format_zip,
+            replace_image_url=replace_image_url,
+            start_page=_start_page,
+            end_page=_end_page,
+            output_format=output_format,
             timeout=_timeout,
-            auto_convert_doc=_b(auto_convert),
-            api_key=selected_api,
+            auto_convert=auto_convert,
             webhook_url=webhook_url,
             batch_id=upload_batch_id,
             batch_name=upload_batch_name,
             priority=_priority,
+            endpoint=ep,
         )
         db.add(task)
         db.commit()
@@ -958,13 +947,13 @@ async def upload_files(
         add_log(f"文件上传成功: {file.filename}", task_id=task.id)
         _notify_task_change(task.id, "pending")
 
-        if _is_doc_file(file.filename) and not _b(auto_convert):
+        if is_doc_file(file.filename) and not parse_bool(auto_convert):
             add_log(f"文档格式文件，等待手动转换为 PDF", task_id=task.id)
 
     for r in results:
         tid = r["id"]
         task = db.query(FileTask).filter(FileTask.id == tid).first()
-        if _is_doc_file(task.original_filename) and not task.auto_convert_doc:
+        if is_doc_file(task.original_filename) and not task.auto_convert_doc:
             continue
         _enqueue_task(tid, priority=getattr(task, 'priority', 0) or 0)
 
