@@ -839,7 +839,7 @@ async def list_logs_grouped(
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    return await get_grouped_logs_impl(db, page, size, level)
+    return get_grouped_logs_impl(db, page, size, level)
 
 
 @router.delete("/logs")
