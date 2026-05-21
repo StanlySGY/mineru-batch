@@ -2,7 +2,7 @@ node_modules/
 .git/
 __pycache__/
 *.pyc
-.pytest_cache/
+**/.pytest_cache/
 .venv/
 *.db
 *.db-shm
@@ -12,5 +12,17 @@ outputs/
 converted/
 dist/
 .claude/
+.ace-tool/
+.antigravitycli/
+.playwright-mcp/
 .env
 *.tar.gz
+*.md
+.gitignore
+.dockerignore
+docker-compose.yml
+docker-build.sh
+Makefile
+start.sh
+docs/
+backend/tests/
