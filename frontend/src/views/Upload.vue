@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, onMounted } from 'vue'
 import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { api } from '../api'
@@ -287,6 +287,34 @@ onUnmounted(() => {
     abortController.value.abort()
   }
 })
+
+const nodePings = ref<Record<string, { latency: number | null; status: 'green' | 'yellow' | 'red' | 'testing' }>>({})
+
+async function pingAllNodes() {
+  cfg.mineruEndpoints.value.forEach(async (ep) => {
+    nodePings.value[ep.url] = { latency: null, status: 'testing' }
+    const startTime = Date.now()
+    try {
+      const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
+      const elapsed = Date.now() - startTime
+      if (res.ok) {
+        let status: 'green' | 'yellow' | 'red' = 'green'
+        if (elapsed < 150) status = 'green'
+        else if (elapsed < 800) status = 'yellow'
+        else status = 'red'
+        nodePings.value[ep.url] = { latency: elapsed, status }
+      } else {
+        nodePings.value[ep.url] = { latency: null, status: 'red' }
+      }
+    } catch {
+      nodePings.value[ep.url] = { latency: null, status: 'red' }
+    }
+  })
+}
+
+onMounted(() => {
+  pingAllNodes()
+})
 </script>
 
 <template>
@@ -415,6 +443,15 @@ onUnmounted(() => {
               <span class="node-url">{{ ep.url }}</span>
               <span class="node-meta">{{ ep.backend }}</span>
             </div>
+            <!-- Ping Status Indicator -->
+            <div v-if="nodePings[ep.url]" class="node-ping-badge" :class="nodePings[ep.url].status">
+              <span class="ping-dot" />
+              <span class="ping-text">
+                <template v-if="nodePings[ep.url].status === 'testing'">测速中...</template>
+                <template v-else-if="nodePings[ep.url].latency !== null">{{ nodePings[ep.url].latency }}ms</template>
+                <template v-else>不可用</template>
+              </span>
+            </div>
           </div>
         </div>
         <div v-if="!selectedEndpoints.length" class="form-tip warn">请至少选择一个节点</div>
@@ -515,6 +552,50 @@ onUnmounted(() => {
 .node-meta { font-size: 11px; color: #909399; }
 
 .no-nodes { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 0; font-size: 13px; color: #909399; }
+
+/* Node Ping Badges & Status Dots */
+.node-ping-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #f4f4f5;
+  color: #909399;
+  flex-shrink: 0;
+}
+.node-ping-badge.testing {
+  background: #f4f4f5;
+  color: #909399;
+}
+.node-ping-badge.green {
+  background: #e1f3d8;
+  color: #67c23a;
+}
+.node-ping-badge.yellow {
+  background: #faecd8;
+  color: #e6a23c;
+}
+.node-ping-badge.red {
+  background: #fde2e2;
+  color: #f56c6c;
+}
+.ping-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+.node-ping-badge.testing .ping-dot {
+  animation: pulse 1.2s infinite ease-in-out;
+}
+@keyframes pulse {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.5; }
+}
 
 @media (max-width: 800px) {
   .upload-page { grid-template-columns: 1fr; }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfig } from '../stores/config'
@@ -11,7 +11,7 @@ const cfg = useConfig()
 
 const testing = ref<number | null>(null)
 const testingAll = ref(false)
-const nodeLatency = ref<Record<number, string>>({})
+const nodePings = ref<Record<number, { latency: number | null; status: 'green' | 'yellow' | 'red' | 'testing' }>>({})
 const concurrency = ref(5)
 const storage = ref<{ uploads: number; outputs: number; converted: number; database: number; total: number } | null>(null)
 const savingSettings = ref(false)
@@ -54,14 +54,24 @@ async function handleTestEndpoint(idx: number) {
   const ep = cfg.mineruEndpoints.value[idx]
   if (!ep) return
   testing.value = idx
+  nodePings.value[idx] = { latency: null, status: 'testing' }
   const start = Date.now()
   try {
     const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
-    const latency = Date.now() - start
-    nodeLatency.value[idx] = `${latency}ms`
-    ElMessage.success(res.ok ? `节点 ${idx + 1} 连接正常 (${latency}ms)` : `节点 ${idx + 1} 异常: ${res.error || '未知错误'}`)
+    const elapsed = Date.now() - start
+    if (res.ok) {
+      let status: 'green' | 'yellow' | 'red' = 'green'
+      if (elapsed < 150) status = 'green'
+      else if (elapsed < 800) status = 'yellow'
+      else status = 'red'
+      nodePings.value[idx] = { latency: elapsed, status }
+      ElMessage.success(`节点 ${idx + 1} 连接正常 (${elapsed}ms)`)
+    } else {
+      nodePings.value[idx] = { latency: null, status: 'red' }
+      ElMessage.error(`节点 ${idx + 1} 异常: ${res.error || '未知错误'}`)
+    }
   } catch (e: any) {
-    nodeLatency.value[idx] = '超时'
+    nodePings.value[idx] = { latency: null, status: 'red' }
     ElMessage.error(e?.response?.data?.detail || '测试连接失败')
   } finally {
     testing.value = null
@@ -70,19 +80,32 @@ async function handleTestEndpoint(idx: number) {
 
 async function handleTestAllEndpoints() {
   testingAll.value = true
-  for (let idx = 0; idx < cfg.mineruEndpoints.value.length; idx++) {
-    const ep = cfg.mineruEndpoints.value[idx]
-    if (!ep.enabled) continue
-    const start = Date.now()
-    try {
-      await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
-      nodeLatency.value[idx] = `${Date.now() - start}ms`
-    } catch {
-      nodeLatency.value[idx] = '超时'
-    }
-  }
+  const activeNodes = cfg.mineruEndpoints.value
+    .map((ep, idx) => ({ ep, idx }))
+    .filter(({ ep }) => ep.enabled)
+  
+  await Promise.all(
+    activeNodes.map(async ({ ep, idx }) => {
+      nodePings.value[idx] = { latency: null, status: 'testing' }
+      const start = Date.now()
+      try {
+        const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
+        const elapsed = Date.now() - start
+        if (res.ok) {
+          let status: 'green' | 'yellow' | 'red' = 'green'
+          if (elapsed < 150) status = 'green'
+          else if (elapsed < 800) status = 'yellow'
+          else status = 'red'
+          nodePings.value[idx] = { latency: elapsed, status }
+        } else {
+          nodePings.value[idx] = { latency: null, status: 'red' }
+        }
+      } catch {
+        nodePings.value[idx] = { latency: null, status: 'red' }
+      }
+    })
+  )
   testingAll.value = false
-  ElMessage.success('全部节点测试完成')
 }
 
 async function loadStorage() {
@@ -187,6 +210,10 @@ loadServerSettings()
 loadConcurrency()
 loadStorage()
 
+onMounted(() => {
+  handleTestAllEndpoints()
+})
+
 const paramTable = [
   { param: 'files', desc: '上传的文件', type: 'file' },
   { param: 'backend', desc: '后端类型 (hybrid-http-client / vlm-http-client)', type: 'string' },
@@ -238,7 +265,15 @@ const paramTable = [
           <span class="endpoint-label">节点 {{ idx + 1 }}</span>
           <el-tag v-if="ep.enabled" type="success" size="small">启用</el-tag>
           <el-tag v-else type="info" size="small">禁用</el-tag>
-          <el-tag v-if="nodeLatency[idx]" :type="nodeLatency[idx] === '超时' ? 'danger' : 'success'" size="small" effect="plain">{{ nodeLatency[idx] }}</el-tag>
+          <!-- Ping Status Indicator -->
+          <div v-if="nodePings[idx]" class="node-ping-badge" :class="nodePings[idx].status">
+            <span class="ping-dot" />
+            <span class="ping-text">
+              <template v-if="nodePings[idx].status === 'testing'">测速中...</template>
+              <template v-else-if="nodePings[idx].latency !== null">{{ nodePings[idx].latency }}ms</template>
+              <template v-else>不可用</template>
+            </span>
+          </div>
           <div class="endpoint-actions">
             <el-button size="small" :icon="Connection" :loading="testing === idx" @click="handleTestEndpoint(idx)" />
             <el-button size="small" type="danger" :icon="Delete" @click="removeEndpoint(idx)" plain />
@@ -429,5 +464,49 @@ const paramTable = [
 @media (max-width: 900px) {
   .settings-page { grid-template-columns: 1fr; }
   .endpoint-row { grid-template-columns: 1fr; }
+}
+
+/* Node Ping Badges & Status Dots */
+.node-ping-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f4f4f5;
+  color: #909399;
+  flex-shrink: 0;
+}
+.node-ping-badge.testing {
+  background: #f4f4f5;
+  color: #909399;
+}
+.node-ping-badge.green {
+  background: #e1f3d8;
+  color: #67c23a;
+}
+.node-ping-badge.yellow {
+  background: #faecd8;
+  color: #e6a23c;
+}
+.node-ping-badge.red {
+  background: #fde2e2;
+  color: #f56c6c;
+}
+.ping-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+.node-ping-badge.testing .ping-dot {
+  animation: pulse 1.2s infinite ease-in-out;
+}
+@keyframes pulse {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.8); opacity: 0.5; }
 }
 </style>

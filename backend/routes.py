@@ -1147,6 +1147,50 @@ async def preview_result(task_id: int, db: Session = Depends(get_db)):
     return {"content": content, "filename": os.path.basename(safe), "format": task.output_format.value}
 
 
+@router.put("/tasks/{task_id}/content")
+async def update_task_content(task_id: int, body: dict, db: Session = Depends(get_db)):
+    task = db.query(FileTask).filter(FileTask.id == task_id).first()
+    if not task:
+        raise HTTPException(404, "Task not found")
+    if not task.output_path:
+        raise HTTPException(400, "Output path is not set")
+    
+    content = body.get("content")
+    if content is None:
+        raise HTTPException(400, "Content is required")
+        
+    safe_path = _safe_path(task.output_path)
+    if not os.path.exists(safe_path):
+        raise HTTPException(404, "Output file missing on disk")
+        
+    if os.path.isdir(safe_path):
+        target_file = None
+        for ext in (task.output_format.value, "md", "txt"):
+            cand = os.path.join(safe_path, f"output.{ext}")
+            if os.path.exists(cand):
+                target_file = cand
+                break
+        if not target_file:
+            for root, _, files in os.walk(safe_path):
+                for fn in files:
+                    if fn.endswith((".md", ".txt", ".html")):
+                        target_file = os.path.join(root, fn)
+                        break
+                if target_file:
+                    break
+        if not target_file:
+            raise HTTPException(404, "Target content file not found inside bundle")
+        safe_file_path = _safe_path(target_file)
+    else:
+        safe_file_path = safe_path
+
+    async with aiofiles.open(safe_file_path, "w", encoding="utf-8") as f:
+        await f.write(content)
+        
+    add_log("用户在线编辑并保存了解析内容", task_id=task.id)
+    return {"detail": "saved"}
+
+
 @router.get("/tasks/{task_id}/download")
 async def download_result(task_id: int, db: Session = Depends(get_db)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()

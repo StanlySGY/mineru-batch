@@ -119,23 +119,159 @@ const previewContent = ref('')
 const previewFilename = ref('')
 const previewFormat = ref('md')
 const previewTaskId = ref(0)
-const previewMode = ref<'render' | 'source'>('render')
+const previewMode = ref<'render' | 'source' | 'split'>('render')
 const previewSearch = ref('')
 const previewSearchMatches = ref(0)
 const previewSearchIdx = ref(0)
 
+const isEditing = ref(false)
+const editContent = ref('')
+const isSaving = ref(false)
+
+function startEditing() {
+  editContent.value = previewContent.value
+  isEditing.value = true
+  if (previewMode.value === 'render') {
+    previewMode.value = 'split'
+  }
+}
+
+function cancelEditing() {
+  ElMessageBox.confirm('确定放弃所有未保存的修改吗？', '提示', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    type: 'warning'
+  }).then(() => {
+    isEditing.value = false
+    editContent.value = previewContent.value
+    if (previewMode.value === 'split') {
+      previewMode.value = 'render'
+    }
+  }).catch(() => {})
+}
+
+async function saveEditing() {
+  if (!editContent.value.trim()) {
+    return ElMessage.warning('内容不能为空')
+  }
+  isSaving.value = true
+  try {
+    await api.updateTaskContent(previewTaskId.value, editContent.value)
+    ElMessage.success('保存成功')
+    previewContent.value = editContent.value
+    isEditing.value = false
+    if (previewMode.value === 'split') {
+      previewMode.value = 'render'
+    }
+    loadTasks()
+  } catch (err: any) {
+    ElMessage.error(err?.response?.data?.detail || '保存失败')
+  } finally {
+    isSaving.value = false
+  }
+}
+
+watch(previewMode, (newMode) => {
+  if (newMode === 'split' && !isEditing.value) {
+    editContent.value = previewContent.value
+    isEditing.value = true
+  }
+})
+
 const renderedPreview = ref('')
 const previewRendering = ref(false)
 
-watch([previewContent, previewFormat, previewMode, previewSearch, previewSearchIdx], () => {
-  if (!previewContent.value || previewFormat.value !== 'md' || previewMode.value !== 'render') {
+// ---------- 双栏编辑同步滚动 (Sync Scroll) ----------
+const editorScrollEl = ref<HTMLTextAreaElement | null>(null)
+const renderPaneEl = ref<HTMLElement | null>(null)
+let activeScrollingPane: 'editor' | 'render' | null = null
+let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+
+const handleEditorScroll = () => {
+  if (activeScrollingPane === 'render') return
+  if (!editorScrollEl.value || !renderPaneEl.value) return
+  
+  activeScrollingPane = 'editor'
+  const editor = editorScrollEl.value
+  const render = renderPaneEl.value
+  const maxEditorScroll = editor.scrollHeight - editor.clientHeight
+  if (maxEditorScroll > 0) {
+    const pct = editor.scrollTop / maxEditorScroll
+    render.scrollTop = pct * (render.scrollHeight - render.clientHeight)
+  }
+  
+  if (scrollTimeout) clearTimeout(scrollTimeout)
+  scrollTimeout = setTimeout(() => {
+    activeScrollingPane = null
+  }, 50)
+}
+
+const handleRenderScroll = () => {
+  if (activeScrollingPane === 'editor') return
+  if (!editorScrollEl.value || !renderPaneEl.value) return
+  
+  activeScrollingPane = 'render'
+  const editor = editorScrollEl.value
+  const render = renderPaneEl.value
+  const maxRenderScroll = render.scrollHeight - render.clientHeight
+  if (maxRenderScroll > 0) {
+    const pct = render.scrollTop / maxRenderScroll
+    editor.scrollTop = pct * (editor.scrollHeight - editor.clientHeight)
+  }
+  
+  if (scrollTimeout) clearTimeout(scrollTimeout)
+  scrollTimeout = setTimeout(() => {
+    activeScrollingPane = null
+  }, 50)
+}
+
+const setEditorRef = (el: any) => {
+  if (el) {
+    const textarea = el.$el ? el.$el.querySelector('textarea') : (el.querySelector ? el.querySelector('textarea') : null)
+    if (textarea) {
+      if (editorScrollEl.value) {
+        editorScrollEl.value.removeEventListener('scroll', handleEditorScroll)
+      }
+      editorScrollEl.value = textarea
+      textarea.addEventListener('scroll', handleEditorScroll)
+    }
+  } else {
+    if (editorScrollEl.value) {
+      editorScrollEl.value.removeEventListener('scroll', handleEditorScroll)
+      editorScrollEl.value = null
+    }
+  }
+}
+
+const setRenderPaneRef = (el: any) => {
+  if (el) {
+    if (renderPaneEl.value) {
+      renderPaneEl.value.removeEventListener('scroll', handleRenderScroll)
+    }
+    renderPaneEl.value = el as HTMLElement
+    el.addEventListener('scroll', handleRenderScroll)
+  } else {
+    if (renderPaneEl.value) {
+      renderPaneEl.value.removeEventListener('scroll', handleRenderScroll)
+      renderPaneEl.value = null
+    }
+  }
+}
+
+watch([previewContent, editContent, isEditing, previewFormat, previewMode, previewSearch, previewSearchIdx], () => {
+  const contentToRender = isEditing.value ? editContent.value : previewContent.value
+  if (!contentToRender || previewFormat.value !== 'md' || (previewMode.value !== 'render' && previewMode.value !== 'split')) {
     renderedPreview.value = ''
     return
   }
-  previewRendering.value = true
+  
+  if (!isEditing.value) {
+    previewRendering.value = true
+  }
+  
   setTimeout(async () => {
     await ensureAllCommonLanguages()
-    const raw = marked.parse(previewContent.value) as string
+    const raw = marked.parse(contentToRender) as string
     const clean = DOMPurify.sanitize(raw, { ADD_TAGS: ['code', 'pre', 'mark'], ADD_ATTR: ['class'] })
     const el = document.createElement('div')
     el.innerHTML = clean
@@ -165,9 +301,10 @@ watch([previewContent, previewFormat, previewMode, previewSearch, previewSearchI
 }, { immediate: true })
 
 const sourcePreviewHighlighted = computed(() => {
-  if (!previewContent.value) return ''
-  if (!previewSearch.value) return escapeHtml(previewContent.value)
-  const escaped = escapeHtml(previewContent.value)
+  const contentToShow = isEditing.value ? editContent.value : previewContent.value
+  if (!contentToShow) return ''
+  if (!previewSearch.value) return escapeHtml(contentToShow)
+  const escaped = escapeHtml(contentToShow)
   const searchEscaped = previewSearch.value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const regex = new RegExp(`(${searchEscaped})`, 'gi')
   const matches = escaped.match(regex)
@@ -681,13 +818,18 @@ function checkMobile() {
   </template>
   </el-card>
 
-<el-dialog v-model="previewVisible" :title="`预览 - ${previewFilename}`" width="75%" top="5vh" destroy-on-close>
-  <div v-loading="previewLoading" class="preview-container">
+<el-dialog v-model="previewVisible" :title="`预览 - ${previewFilename}`" width="80%" top="5vh" destroy-on-close>
+  <div v-loading="previewLoading" :class="['preview-container', { 'is-split': previewMode === 'split' }]">
     <div class="preview-toolbar">
-      <el-radio-group v-if="previewFormat === 'md'" v-model="previewMode" size="small">
-        <el-radio-button value="render">渲染</el-radio-button>
-        <el-radio-button value="source">源码</el-radio-button>
-      </el-radio-group>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <el-radio-group v-if="previewFormat === 'md'" v-model="previewMode" size="small">
+          <el-radio-button value="render">渲染</el-radio-button>
+          <el-radio-button value="source">源码</el-radio-button>
+          <el-radio-button value="split">双栏对照</el-radio-button>
+        </el-radio-group>
+        <el-button v-if="previewFormat === 'md' && !isEditing" type="primary" size="small" plain @click="startEditing">✏️ 编辑</el-button>
+        <el-tag v-else-if="isEditing" type="warning" size="small">✏️ 正在编辑中...</el-tag>
+      </div>
       <div class="preview-search">
         <el-input v-model="previewSearch" placeholder="搜索内容" clearable size="small" style="width:180px" :prefix-icon="Search" />
         <template v-if="previewSearch">
@@ -697,16 +839,56 @@ function checkMobile() {
         </template>
       </div>
     </div>
+    
     <div v-if="previewRendering" class="preview-rendering">
       <el-skeleton :rows="10" animated />
     </div>
-    <div v-else-if="previewContent && previewFormat === 'md' && previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
-    <pre v-else-if="previewContent" class="text-preview" v-html="sourcePreviewHighlighted" />
+    
+    <!-- Split View Mode -->
+    <div v-else-if="previewContent && previewFormat === 'md' && previewMode === 'split'" class="split-preview-wrapper">
+      <div class="split-editor-pane">
+        <el-input
+          :ref="setEditorRef"
+          v-model="editContent"
+          type="textarea"
+          :rows="24"
+          placeholder="请输入 Markdown 源码内容..."
+          resize="none"
+          class="editor-textarea"
+        />
+      </div>
+      <div class="split-render-pane md-preview" :ref="setRenderPaneRef" v-html="renderedPreview" />
+    </div>
+    
+    <!-- Regular Modes -->
+    <template v-else-if="previewContent">
+      <!-- Source Editing Mode -->
+      <div v-if="previewMode === 'source' && isEditing" class="full-editor-pane">
+        <el-input
+          v-model="editContent"
+          type="textarea"
+          :rows="24"
+          placeholder="请输入 Markdown 源码内容..."
+          resize="none"
+          class="editor-textarea"
+        />
+      </div>
+      <!-- Source View Mode (Read-only) -->
+      <pre v-else-if="previewMode === 'source'" class="text-preview" v-html="sourcePreviewHighlighted" />
+      <!-- Rendered HTML Mode -->
+      <div v-else-if="previewMode === 'render'" class="md-preview" v-html="renderedPreview" />
+    </template>
   </div>
   <template #footer>
-    <el-button @click="previewVisible = false">关闭</el-button>
-    <el-button type="primary" @click="handleDownload({ id: previewTaskId } as TaskItem)">下载</el-button>
-    <el-button type="warning" @click="handleRetryFromPreview">重试</el-button>
+    <template v-if="isEditing">
+      <el-button size="small" @click="cancelEditing">取消编辑</el-button>
+      <el-button type="success" size="small" :loading="isSaving" @click="saveEditing">💾 保存修改</el-button>
+    </template>
+    <template v-else>
+      <el-button size="small" @click="previewVisible = false">关闭</el-button>
+      <el-button type="primary" size="small" @click="handleDownload({ id: previewTaskId } as TaskItem)">下载</el-button>
+      <el-button type="warning" size="small" @click="handleRetryFromPreview">重试</el-button>
+    </template>
   </template>
 </el-dialog>
 
@@ -932,4 +1114,68 @@ function checkMobile() {
 }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+/* Split Preview & Editor Styles */
+.preview-container.is-split {
+  display: flex;
+  flex-direction: column;
+  max-height: 75vh;
+  height: 70vh;
+  overflow: hidden;
+  padding: 16px;
+}
+.split-preview-wrapper {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  min-height: 0;
+  margin-top: 8px;
+}
+.split-editor-pane, .split-render-pane {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  border-radius: 6px;
+  background: #ffffff;
+  border: 1px solid #e4e7ed;
+  padding: 12px;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+.split-editor-pane {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.split-editor-pane :deep(.el-textarea), .split-editor-pane :deep(.el-textarea__inner) {
+  height: 100% !important;
+  border: none;
+  box-shadow: none;
+  resize: none;
+  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #fafafa;
+  color: #2c3e50;
+  padding: 12px;
+}
+.split-editor-pane :deep(.el-textarea__inner):focus {
+  background: #ffffff;
+}
+.full-editor-pane {
+  border: 1px solid #e4e7ed;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+.full-editor-pane :deep(.el-textarea), .full-editor-pane :deep(.el-textarea__inner) {
+  border: none;
+  box-shadow: none;
+  resize: none;
+  font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #fafafa;
+  padding: 16px;
+}
 </style>

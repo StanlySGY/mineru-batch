@@ -314,6 +314,11 @@ export const api = {
     return data as { content: string; filename: string; format: string }
   },
 
+  async updateTaskContent(id: number, content: string) {
+    const { data } = await http.put(`/tasks/${id}/content`, { content })
+    return data as { detail: string }
+  },
+
   async listLogs(params: { task_id?: number; level?: string; page?: number; size?: number }) {
     const { data } = await http.get('/logs', { params })
     return data as { total: number; items: LogItem[] }
