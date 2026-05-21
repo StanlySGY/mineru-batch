@@ -35,6 +35,7 @@ from services.upload_service import (
 from services.task_service import (
     mark_task_cancelled, is_task_cancelled, unmark_task_cancelled, cancel_task_impl, retry_task_impl,
 )
+from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
 
 router = APIRouter()
 
@@ -1346,59 +1347,17 @@ async def get_storage_stats():
     }
 
 
-async def _clean_directory(dir_path: str, skip_dotfiles: bool = False) -> int:
-    """清理目录中的所有文件和子目录，返回清理数量"""
-    if not os.path.exists(dir_path):
-        return 0
-    n = 0
-    for f in os.listdir(dir_path):
-        if skip_dotfiles and f.startswith("."):
-            continue
-        fp = os.path.join(dir_path, f)
-        try:
-            if os.path.isfile(fp):
-                await asyncio.to_thread(os.remove, fp)
-                n += 1
-            elif os.path.isdir(fp):
-                await asyncio.to_thread(shutil.rmtree, fp)
-                n += 1
-        except OSError:
-            pass
-    return n
-
-
 @router.post("/storage/clean")
 async def clean_storage(body: dict = None, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     targets = (body or {}).get("targets", [])
-    cleaned = {}
-    if "outputs" in targets:
-        cleaned["outputs"] = await _clean_directory(OUTPUT_DIR)
-        db.query(FileTask).filter(FileTask.output_path.isnot(None)).update({"output_path": None})
-        db.commit()
-    if "converted" in targets:
-        cleaned["converted"] = await _clean_directory(CONVERT_DIR, skip_dotfiles=True)
+    cleaned = await clean_storage_impl(targets, OUTPUT_DIR, CONVERT_DIR, db)
     return {"detail": "cleaned", "counts": cleaned}
 
 
 @router.post("/storage/clean-sources")
 async def clean_completed_sources(db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    tasks = db.query(FileTask).filter(
-        FileTask.status == TaskStatus.COMPLETED,
-        FileTask.file_path.isnot(None),
-    ).all()
-    count = 0
-    freed = 0
-    for task in tasks:
-        if task.file_path and os.path.exists(task.file_path):
-            try:
-                freed += os.path.getsize(task.file_path)
-                await asyncio.to_thread(os.remove, task.file_path)
-                task.file_path = None
-                count += 1
-            except OSError:
-                pass
-    db.commit()
-    return {"detail": "cleaned", "count": count, "freed_bytes": freed}
+    result = await clean_completed_sources_impl(db)
+    return {"detail": "cleaned", **result}
 
 
 @router.get("/stats/trend")
