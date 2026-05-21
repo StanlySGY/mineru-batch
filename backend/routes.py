@@ -47,6 +47,7 @@ from services.batch_service import batch_delete_tasks_impl, batch_retry_tasks_im
 from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
 from services.task_management_service import delete_task_impl, update_task_impl
 from services.system_service import test_connection_impl
+from services.document_service import convert_doc_to_pdf_impl
 
 router = APIRouter()
 
@@ -772,24 +773,7 @@ async def upload_files(
 
 @router.post("/tasks/{task_id}/convert")
 async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if not _is_doc_file(task.original_filename):
-        raise HTTPException(400, "Not a convertible document file")
-    if task.pdf_path and os.path.exists(task.pdf_path):
-        return {"detail": "already converted", "pdf_path": task.pdf_path}
-
-    try:
-        pdf_path = await _convert_to_pdf(task.file_path, task_id)
-        task.pdf_path = pdf_path
-        task.auto_convert_doc = True
-        db.commit()
-        add_log(f"手动转换完成，开始解析", task_id=task_id)
-        _enqueue_task(task.id)
-        return {"detail": "converted", "pdf_path": pdf_path}
-    except Exception as e:
-        raise HTTPException(500, f"Conversion failed: {e}")
+    return await convert_doc_to_pdf_impl(db, task_id, _is_doc_file, _convert_to_pdf, _enqueue_task)
 
 
 @router.get("/tasks")
