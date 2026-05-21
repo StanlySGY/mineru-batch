@@ -557,11 +557,24 @@ def _is_cancelled(task_id: int) -> bool:
         return task_id in _cancelled_tasks
 
 
+def _check_and_mark_cancelled(task: FileTask, db, cleanup_path: str = None) -> bool:
+    """如果任务已取消则标记 FAILED 并提交，返回 True 表示调用方应立即 return"""
+    if not _is_cancelled(task.id):
+        return False
+    if cleanup_path and os.path.exists(cleanup_path):
+        os.remove(cleanup_path)
+    task.status = TaskStatus.FAILED
+    task.error_message = "任务已取消"
+    task.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return True
+
+
 def _process_task_sync(task_id: int):
     db = SessionLocal()
     try:
         task = db.query(FileTask).filter(FileTask.id == task_id).first()
-        if not task or _is_cancelled(task_id):
+        if not task or _check_and_mark_cancelled(task, db):
             return
 
         file_to_parse = task.file_path
@@ -580,10 +593,7 @@ def _process_task_sync(task_id: int):
                 except Exception as e:
                     raise RuntimeError(f"文档转 PDF 失败: {e}")
 
-        if _is_cancelled(task_id):
-            task.status = TaskStatus.FAILED
-            task.error_message = "任务已取消"
-            db.commit()
+        if _check_and_mark_cancelled(task, db):
             return
 
         task.status = TaskStatus.PROCESSING
@@ -592,11 +602,7 @@ def _process_task_sync(task_id: int):
         add_log(f"任务开始处理", task_id=task_id)
         _notify_task_change(task_id, "processing")
 
-        if _is_cancelled(task_id):
-            task.status = TaskStatus.FAILED
-            task.error_message = "任务已取消"
-            db.commit()
-            return
+        if _check_and_mark_cancelled(task, db): return
 
         result = _call_mineru_sync(task, task_id, file_to_parse)
 
@@ -656,14 +662,7 @@ def _process_task_sync(task_id: int):
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(output_content)
             add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
-        if _is_cancelled(task_id):
-            if os.path.exists(out_path):
-                os.remove(out_path)
-            task.status = TaskStatus.FAILED
-            task.error_message = "任务已取消"
-            task.completed_at = datetime.now(timezone.utc)
-            db.commit()
-            return
+        if _check_and_mark_cancelled(task, db, cleanup_path=out_path): return
         task.output_path = out_path
         task.status = TaskStatus.COMPLETED
         task.completed_at = datetime.now(timezone.utc)
