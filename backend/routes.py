@@ -46,6 +46,7 @@ from services.query_service import get_tasks_since_impl, list_tasks_impl, get_ta
 from services.batch_service import batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl, batch_download_tasks_impl
 from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
 from services.task_management_service import delete_task_impl, update_task_impl
+from services.system_service import test_connection_impl
 
 router = APIRouter()
 
@@ -585,27 +586,7 @@ async def set_concurrency_endpoint(body: dict, _: None = Depends(require_admin))
 
 @router.post("/test-connection")
 async def test_connection(body: dict = None):
-    mineru_api = (body or {}).get("mineru_api", "")
-    server_url = (body or {}).get("server_url", "")
-    results = {}
-    if mineru_api:
-        try:
-            safe_mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(safe_mineru_api.replace("/file_parse", "/"))
-                results["mineru"] = {"ok": resp.status_code < 500, "status": resp.status_code}
-        except Exception as e:
-            results["mineru"] = {"ok": False, "error": str(e)}
-    if server_url:
-        try:
-            safe_server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{safe_server_url.rstrip('/')}/models")
-                results["server"] = {"ok": resp.status_code < 500, "status": resp.status_code}
-        except Exception as e:
-            results["server"] = {"ok": False, "error": str(e)}
-    ok = all(r.get("ok") for r in results.values()) if results else False
-    return {"ok": ok, "detail": results}
+    return await test_connection_impl(body, _validate_external_url, ALLOW_PRIVATE_ENDPOINTS)
 
 
 @router.get("/settings")
