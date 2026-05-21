@@ -41,6 +41,7 @@ from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
 from services.settings_service import (
     get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
 )
+from services.report_service import get_stats_impl, get_quality_report_impl
 
 router = APIRouter()
 
@@ -617,61 +618,13 @@ async def update_settings(body: dict, db: Session = Depends(get_db), _: None = D
 
 @router.get("/stats")
 async def get_stats(db: Session = Depends(get_db)):
-    total = db.query(func.count(FileTask.id)).scalar()
-    by_status = (
-        db.query(FileTask.status, func.count(FileTask.id))
-        .group_by(FileTask.status)
-        .all()
-    )
-    status_map = {s.value: c for s, c in by_status}
-    # 用 Python 层面计算平均耗时，兼容 SQLite 和 PostgreSQL
-    completed_tasks = db.query(FileTask.started_at, FileTask.completed_at).filter(
-        FileTask.status == TaskStatus.COMPLETED,
-        FileTask.started_at.isnot(None),
-        FileTask.completed_at.isnot(None),
-    ).all()
-    durations = [(c - s).total_seconds() * 1000 for s, c in completed_tasks if c and s]
-    avg_duration_ms = sum(durations) / len(durations) if durations else 0
-    return {
-        "total": total,
-        "pending": status_map.get("pending", 0),
-        "processing": status_map.get("processing", 0),
-        "completed": status_map.get("completed", 0),
-        "failed": status_map.get("failed", 0),
-        "avg_duration_ms": avg_duration_ms,
-    }
+    return get_stats_impl(db)
 
 
 @router.get("/reports/quality")
 async def get_quality_report(db: Session = Depends(get_db)):
-    stats = await get_stats(db)
-    done = stats["completed"] + stats["failed"]
-    recent_failed = (
-        db.query(FileTask)
-        .filter(FileTask.status == TaskStatus.FAILED)
-        .order_by(FileTask.id.desc())
-        .limit(5)
-        .all()
-    )
-    return {
-        "total": stats["total"],
-        "completed": stats["completed"],
-        "failed": stats["failed"],
-        "processing": stats["processing"],
-        "pending": stats["pending"],
-        "success_rate": round(stats["completed"] / done * 100, 1) if done else 0,
-        "avg_duration_ms": stats["avg_duration_ms"],
-        "recent_failures": [
-            {
-                "id": t.id,
-                "filename": t.original_filename,
-                "error_message": t.error_message,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
-            }
-            for t in recent_failed
-        ],
-    }
+    stats = get_stats_impl(db)
+    return get_quality_report_impl(db, stats)
 
 
 @router.get("/tasks/events")
