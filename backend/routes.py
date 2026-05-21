@@ -44,6 +44,7 @@ from services.settings_service import (
 from services.report_service import get_stats_impl, get_quality_report_impl
 from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
 from services.batch_service import batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl, batch_download_tasks_impl
+from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
 
 router = APIRouter()
 
@@ -921,93 +922,31 @@ async def retry_task(
 
 @router.get("/tasks/{task_id}/preview")
 async def preview_result(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if task.status != TaskStatus.COMPLETED or not task.output_path:
-        raise HTTPException(400, "Result not ready")
-    safe = _safe_path(task.output_path)
-    if not os.path.exists(safe):
-        raise HTTPException(404, "Output file missing on disk")
-    async with aiofiles.open(safe, "r", encoding="utf-8") as f:
-        content = await f.read()
-    return {"content": content, "filename": os.path.basename(safe), "format": task.output_format.value}
+    return await preview_result_impl(db, task_id, _safe_path)
 
 
 @router.put("/tasks/{task_id}/content")
 async def update_task_content(task_id: int, body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if not task.output_path:
-        raise HTTPException(400, "Output path is not set")
-    
-    content = body.get("content")
-    if content is None:
-        raise HTTPException(400, "Content is required")
-        
-    safe_path = _safe_path(task.output_path)
-    if not os.path.exists(safe_path):
-        raise HTTPException(404, "Output file missing on disk")
-        
-    if os.path.isdir(safe_path):
-        target_file = None
-        for ext in (task.output_format.value, "md", "txt"):
-            cand = os.path.join(safe_path, f"output.{ext}")
-            if os.path.exists(cand):
-                target_file = cand
-                break
-        if not target_file:
-            for root, _, files in os.walk(safe_path):
-                for fn in files:
-                    if fn.endswith((".md", ".txt", ".html")):
-                        target_file = os.path.join(root, fn)
-                        break
-                if target_file:
-                    break
-        if not target_file:
-            raise HTTPException(404, "Target content file not found inside bundle")
-        safe_file_path = _safe_path(target_file)
-    else:
-        safe_file_path = safe_path
-
-    async with aiofiles.open(safe_file_path, "w", encoding="utf-8") as f:
-        await f.write(content)
-        
-    add_log("用户在线编辑并保存了解析内容", task_id=task.id)
-    return {"detail": "saved"}
+    return await update_task_content_impl(db, task_id, body, _safe_path)
 
 
 @router.get("/tasks/{task_id}/download")
 async def download_result(task_id: int, db: Session = Depends(get_db)):
-    task = db.query(FileTask).filter(FileTask.id == task_id).first()
-    if not task:
-        raise HTTPException(404, "Task not found")
-    if task.status != TaskStatus.COMPLETED or not task.output_path:
-        raise HTTPException(400, "Result not ready")
-    safe = _safe_path(task.output_path)
-    if not os.path.exists(safe):
-        raise HTTPException(404, "Output file missing on disk")
-    if os.path.isdir(safe):
-        stem = _sanitize_filename(task.original_filename)
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, _, files in os.walk(safe):
-                for fn in files:
-                    fp = os.path.join(root, fn)
-                    arc = os.path.join(stem, os.path.relpath(fp, safe))
-                    zf.write(fp, arc)
-        buf.seek(0)
+    result = download_result_impl(db, task_id, _safe_path, _sanitize_filename)
+    if isinstance(result[0], io.BytesIO):
+        buf, _, filename = result
         return StreamingResponse(
             buf,
             media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename={stem}_bundle.zip"},
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
         )
-    return FileResponse(
-        safe,
-        filename=os.path.basename(safe),
-        media_type="text/markdown" if task.output_format == OutputFormat.MD else "text/plain",
-    )
+    else:
+        path, format_val, filename = result
+        return FileResponse(
+            path,
+            filename=filename,
+            media_type="text/markdown" if format_val == "md" else "text/plain",
+        )
 
 
 @router.get("/logs")
