@@ -9,6 +9,9 @@ import subprocess
 import threading
 import traceback
 import asyncio
+import ipaddress
+import socket
+from urllib.parse import urlparse
 import aiofiles
 import httpx
 import json as _json
@@ -16,7 +19,7 @@ import html
 import markdown
 from pathlib import Path
 from datetime import datetime, timezone
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query, Request
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query, Request, Header
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
@@ -34,12 +37,16 @@ from limiter import limiter as _limiter
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs"))
 CONVERT_DIR = os.environ.get("CONVERT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "converted"))
+ALLOW_PRIVATE_ENDPOINTS = os.environ.get("ALLOW_PRIVATE_ENDPOINTS", "true").lower() in ("1", "true", "yes")
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(CONVERT_DIR, exist_ok=True)
 
 DOC_EXTENSIONS = {".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
+MAX_ZIP_ENTRIES = 1000
+MAX_ZIP_UNCOMPRESSED_SIZE = 500 * 1024 * 1024
 _lo_semaphore = asyncio.Semaphore(2)
 _rr_counter = 0
 _rr_lock = threading.Lock()
@@ -86,6 +93,48 @@ DEFAULT_SETTINGS = {
 }
 SETTINGS_KEY = "app_settings"
 MASKED_API_KEY = "********"
+BLOCKED_URL_HOSTS = {"localhost", "localhost.localdomain"}
+
+
+def _is_public_ip(addr: str) -> bool:
+    ip = ipaddress.ip_address(addr)
+    return not (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def _validate_external_url(url: str, label: str = "URL", allow_private: bool = False) -> str:
+    value = str(url or "").strip()
+    parsed = urlparse(value)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise HTTPException(400, f"{label} must be http or https URL")
+    if allow_private:
+        return value
+    host = parsed.hostname.rstrip(".").lower()
+    if host in BLOCKED_URL_HOSTS:
+        raise HTTPException(400, f"{label} host is not allowed")
+    try:
+        addresses = [host] if re.fullmatch(r"[0-9a-fA-F:.]+", host) else socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+        ips = [item if isinstance(item, str) else item[4][0] for item in addresses]
+        if not ips or any(not _is_public_ip(ip) for ip in ips):
+            raise HTTPException(400, f"{label} host is not allowed")
+    except HTTPException:
+        raise
+    except (OSError, ValueError):
+        raise HTTPException(400, f"{label} host cannot be resolved")
+    return value
+
+
+def require_admin(x_admin_api_key: str | None = Header(None)):
+    if not ADMIN_API_KEY:
+        return
+    if x_admin_api_key != ADMIN_API_KEY:
+        raise HTTPException(401, "Admin authorization required")
 
 
 def _clone_default_settings() -> dict:
@@ -116,13 +165,10 @@ def _sanitize_settings(data: dict) -> dict:
 
 
 def _validate_endpoint(ep: dict) -> dict:
-    url = str(ep.get("url") or "").strip()
-    server_url = str(ep.get("serverUrl") or "").strip()
+    url = _validate_external_url(ep.get("url"), "MinerU endpoint", allow_private=ALLOW_PRIVATE_ENDPOINTS)
+    server_url_raw = str(ep.get("serverUrl") or "").strip()
+    server_url = _validate_external_url(server_url_raw, "serverUrl", allow_private=ALLOW_PRIVATE_ENDPOINTS) if server_url_raw else ""
     backend = str(ep.get("backend") or "hybrid-http-client").strip()
-    if not url.startswith(("http://", "https://")):
-        raise HTTPException(400, "MinerU endpoint must be http or https URL")
-    if server_url and not server_url.startswith(("http://", "https://")):
-        raise HTTPException(400, "serverUrl must be http or https URL")
     if backend not in ("hybrid-http-client", "vlm-http-client"):
         raise HTTPException(400, "backend is invalid")
     clean = {
@@ -268,6 +314,7 @@ def _send_webhook_sync(task: FileTask, content: str = None):
     if not task.webhook_url:
         return
     try:
+        _validate_external_url(task.webhook_url, "webhook_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
         payload = {
             "task_id": task.id,
             "filename": task.original_filename,
@@ -314,6 +361,36 @@ def _save_upload(file: UploadFile) -> tuple[str, str]:
     saved_name = f"{uuid.uuid4().hex}{ext}"
     save_path = os.path.join(UPLOAD_DIR, saved_name)
     return saved_name, save_path
+
+
+def _safe_extract_zip(zip_path: str, dest_dir: str):
+    dest = Path(dest_dir).resolve()
+    total_size = 0
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        infos = zf.infolist()
+        if len(infos) > MAX_ZIP_ENTRIES:
+            raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, "ZIP 文件数量超限"))
+        for info in infos:
+            total_size += info.file_size
+            if total_size > MAX_ZIP_UNCOMPRESSED_SIZE:
+                raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, "ZIP 解压体积超限"))
+            target = (dest / info.filename).resolve()
+            if not target.is_relative_to(dest):
+                raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, "ZIP 包含非法路径"))
+        zf.extractall(dest)
+
+
+async def _save_upload_stream(file: UploadFile, save_path: str) -> int:
+    size = 0
+    async with aiofiles.open(save_path, "wb") as out:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_FILE_SIZE:
+                await out.close()
+                _safe_remove(save_path)
+                raise HTTPException(400, f"文件 {file.filename} 超过大小限制({MAX_FILE_SIZE // 1024 // 1024}MB)")
+            await out.write(chunk)
+    return size
 
 
 def _is_doc_file(filename: str) -> bool:
@@ -391,7 +468,8 @@ def _build_mineru_form(task: FileTask) -> dict:
 
 
 def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
-    api_url = task.mineru_api
+    api_url = _validate_external_url(task.mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
+    _validate_external_url(task.server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     timeout = task.timeout or 600
     add_log(f"开始调用 MinerU API", task_id=task_id,
             detail=f"api={api_url}\nbackend={task.backend}\nserver_url={task.server_url}\nparse_method={task.parse_method}\nfile={os.path.basename(file_to_parse)}\ntimeout={timeout}s")
@@ -425,8 +503,7 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
                 zip_path = os.path.join(bundle_dir, "mineru_raw.zip")
                 with open(zip_path, "wb") as zf:
                     zf.write(resp.content)
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    zf.extractall(bundle_dir)
+                _safe_extract_zip(zip_path, bundle_dir)
                 os.remove(zip_path)
                 add_log(f"ZIP 已解压到 {bundle_dir}", task_id=task_id)
                 md_content = ""
@@ -620,7 +697,7 @@ async def get_concurrency():
 
 
 @router.put("/concurrency")
-async def set_concurrency_endpoint(body: dict):
+async def set_concurrency_endpoint(body: dict, _: None = Depends(require_admin)):
     n = body.get("concurrency", 5)
     if not isinstance(n, int) or n < 1 or n > 20:
         raise HTTPException(400, "concurrency must be 1-20")
@@ -635,15 +712,17 @@ async def test_connection(body: dict = None):
     results = {}
     if mineru_api:
         try:
+            safe_mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(mineru_api.replace("/file_parse", "/"))
+                resp = await client.get(safe_mineru_api.replace("/file_parse", "/"))
                 results["mineru"] = {"ok": resp.status_code < 500, "status": resp.status_code}
         except Exception as e:
             results["mineru"] = {"ok": False, "error": str(e)}
     if server_url:
         try:
+            safe_server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{server_url.rstrip('/')}/models")
+                resp = await client.get(f"{safe_server_url.rstrip('/')}/models")
                 results["server"] = {"ok": resp.status_code < 500, "status": resp.status_code}
         except Exception as e:
             results["server"] = {"ok": False, "error": str(e)}
@@ -657,7 +736,7 @@ async def get_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/settings")
-async def update_settings(body: dict, db: Session = Depends(get_db)):
+async def update_settings(body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     current = _settings_from_db(db)
     saved = _save_settings(db, _validate_settings_payload(body or {}, current))
     return _sanitize_settings(saved)
@@ -816,9 +895,16 @@ async def upload_files(
     endpoints_list = None
     if mineru_endpoints:
         try:
-            endpoints_list = json.loads(mineru_endpoints)
+            raw_endpoints = json.loads(mineru_endpoints)
+            if isinstance(raw_endpoints, list):
+                endpoints_list = [_validate_endpoint(ep) for ep in raw_endpoints]
         except json.JSONDecodeError:
             endpoints_list = None
+    if not endpoints_list:
+        mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
+        server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
+    if webhook_url:
+        webhook_url = _validate_external_url(webhook_url, "webhook_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
 
     results = []
     rel_paths = []
@@ -833,13 +919,8 @@ async def upload_files(
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
-        content = await file.read()
-        if len(content) > MAX_FILE_SIZE:
-            raise HTTPException(400, f"文件 {file.filename} 超过大小限制({MAX_FILE_SIZE // 1024 // 1024}MB)")
-        await file.seek(0)
         saved_name, save_path = _save_upload(file)
-        async with aiofiles.open(save_path, "wb") as f:
-            await f.write(content)
+        file_size = await _save_upload_stream(file, save_path)
 
         original_name = file.filename
         if idx < len(rel_paths) and rel_paths[idx] and "/" in rel_paths[idx]:
@@ -853,7 +934,7 @@ async def upload_files(
             original_filename=original_name,
             saved_filename=saved_name,
             file_path=save_path,
-            file_size=len(content),
+            file_size=file_size,
             mineru_api=selected_url,
             backend=ep.get("backend", backend) if ep else backend,
             server_url=ep.get("serverUrl", server_url) if ep else server_url,
@@ -900,7 +981,7 @@ async def upload_files(
 
 
 @router.post("/tasks/{task_id}/convert")
-async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db)):
+async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
@@ -943,7 +1024,7 @@ async def list_tasks(
 
 
 @router.delete("/tasks/batch")
-async def batch_delete_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db)):
+async def batch_delete_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
     id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
     if not id_list:
         return {"detail": "batch deleted", "count": 0}
@@ -958,7 +1039,7 @@ async def batch_delete_tasks(ids: str = Query(..., description="comma-separated 
 
 
 @router.post("/tasks/batch/retry")
-async def batch_retry_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db)):
+async def batch_retry_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
     id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
     if not id_list:
         return {"detail": "batch retried", "count": 0}
@@ -976,7 +1057,7 @@ async def batch_retry_tasks(ids: str = Query(..., description="comma-separated t
 
 
 @router.post("/tasks/batch/convert")
-async def batch_convert_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db)):
+async def batch_convert_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
     id_list = [int(i) for i in ids.split(",") if i.strip().isdigit()]
     if not id_list:
         return {"detail": "batch converted", "count": 0}
@@ -1039,7 +1120,7 @@ async def get_task(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: int, db: Session = Depends(get_db)):
+async def delete_task(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
@@ -1062,6 +1143,7 @@ async def update_task(
     output_format: str = Form(None),
     timeout: str = Form(None),
     db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
 ):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
@@ -1069,9 +1151,9 @@ async def update_task(
     if backend:
         task.backend = backend
     if mineru_api:
-        task.mineru_api = mineru_api
+        task.mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     if server_url:
-        task.server_url = server_url
+        task.server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     if parse_method:
         task.parse_method = parse_method
     if lang_list:
@@ -1090,7 +1172,7 @@ async def update_task(
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: int, db: Session = Depends(get_db)):
+async def cancel_task(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
@@ -1112,6 +1194,7 @@ async def retry_task(
     mineru_api: str | None = Form(None),
     server_url: str | None = Form(None),
     db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
 ):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
@@ -1122,9 +1205,9 @@ async def retry_task(
     task.status = TaskStatus.PENDING
     task.error_message = None
     if mineru_api:
-        task.mineru_api = mineru_api
+        task.mineru_api = _validate_external_url(mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     if server_url:
-        task.server_url = server_url
+        task.server_url = _validate_external_url(server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     db.commit()
     add_log(f"任务重新提交", task_id=task_id)
 
@@ -1148,7 +1231,7 @@ async def preview_result(task_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/tasks/{task_id}/content")
-async def update_task_content(task_id: int, body: dict, db: Session = Depends(get_db)):
+async def update_task_content(task_id: int, body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     task = db.query(FileTask).filter(FileTask.id == task_id).first()
     if not task:
         raise HTTPException(404, "Task not found")
@@ -1279,7 +1362,7 @@ async def list_logs_grouped(
 
 
 @router.delete("/logs")
-async def clear_logs(db: Session = Depends(get_db)):
+async def clear_logs(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     count = db.query(ProcessLog).delete()
     db.commit()
     return {"detail": "cleared", "count": count}
@@ -1313,7 +1396,7 @@ async def get_storage_stats():
 
 
 @router.post("/storage/clean")
-async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
+async def clean_storage(body: dict = None, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     targets = (body or {}).get("targets", [])
     cleaned = {}
     if "outputs" in targets:
@@ -1352,7 +1435,7 @@ async def clean_storage(body: dict = None, db: Session = Depends(get_db)):
 
 
 @router.post("/storage/clean-sources")
-async def clean_completed_sources(db: Session = Depends(get_db)):
+async def clean_completed_sources(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     tasks = db.query(FileTask).filter(
         FileTask.status == TaskStatus.COMPLETED,
         FileTask.file_path.isnot(None),
