@@ -874,7 +874,22 @@ async def get_mineru_container_logs(
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "Docker command timeout"}
     except FileNotFoundError:
-        return {"ok": False, "error": "Docker command not found"}
+        log_file = Path("/app/app.log")
+        if log_file.exists():
+            try:
+                async with aiofiles.open(log_file, "r") as f:
+                    content = await f.read()
+                    log_lines = content.splitlines()
+                    tail_lines = log_lines[-lines:] if len(log_lines) > lines else log_lines
+                    return {
+                        "ok": True,
+                        "container": "application",
+                        "logs": "\n".join(tail_lines),
+                        "lines": len(tail_lines),
+                    }
+            except Exception as e:
+                return {"ok": False, "error": f"Failed to read log file: {str(e)}"}
+        return {"ok": False, "error": "Docker command not found and no application log file available"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

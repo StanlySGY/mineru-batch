@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,6 +53,16 @@ def _ensure_frontend():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    log_file = Path("/app/app.log")
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
     _ensure_frontend()
     init_db()
     import sys as _sys
