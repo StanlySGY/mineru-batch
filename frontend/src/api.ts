@@ -1,7 +1,8 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-const http = axios.create({ baseURL: '/api' })
+const apiBase = import.meta.env.VITE_API_BASE_URL || '/api'
+const http = axios.create({ baseURL: apiBase })
 
 http.interceptors.response.use(
   (res) => res,
