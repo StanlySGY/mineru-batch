@@ -1152,14 +1152,14 @@ function checkMobile() {
   max-height: 75vh;
   height: 70vh;
   overflow: hidden;
-  padding: 16px;
+  padding: 0;
 }
 .split-preview-wrapper {
   display: flex;
   gap: 20px;
   flex: 1;
   min-height: 0;
-  margin-top: 8px;
+  padding: 16px;
 }
 .split-editor-pane, .split-render-pane {
   flex: 1;
@@ -1182,6 +1182,7 @@ function checkMobile() {
   padding: 12px;
   overflow-y: scroll;
   overflow-x: hidden;
+  box-sizing: border-box;
 }
 .split-editor-pane :deep(.el-textarea), .split-editor-pane :deep(.el-textarea__inner) {
   height: 100% !important;
@@ -1196,6 +1197,7 @@ function checkMobile() {
   background: #fafafa;
   color: #2c3e50;
   padding: 12px;
+  box-sizing: border-box;
 }
 .split-editor-pane :deep(.el-textarea__inner):focus {
   background: #ffffff;
