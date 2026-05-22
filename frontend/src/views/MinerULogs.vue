@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Delete, Refresh } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { Delete, Refresh, DocumentCopy } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox, ElDialog } from 'element-plus'
 import { api, type LogGroup } from '../api'
 import { formatTime } from '../utils/format'
 
@@ -14,6 +14,11 @@ const loading = ref(false)
 const firstLoad = ref(true)
 const expandedTaskIds = ref<Set<number>>(new Set())
 const expandedLogId = ref<number | null>(null)
+const containerLogsVisible = ref(false)
+const containerLogs = ref('')
+const containerLogsLoading = ref(false)
+const containerName = ref('mineru-full')
+const containerLogLines = ref(200)
 let sseClose: (() => void) | null = null
 
 const levelSummary = computed(() => {
@@ -99,6 +104,32 @@ function getMinerULogs(logs: any[]) {
   )
 }
 
+async function loadContainerLogs() {
+  containerLogsLoading.value = true
+  try {
+    const res = await api.getMinerUContainerLogs(containerName.value, containerLogLines.value)
+    if (res.ok && res.logs) {
+      containerLogs.value = res.logs
+      containerLogsVisible.value = true
+    } else {
+      ElMessage.error(res.error || '获取容器日志失败')
+    }
+  } catch (e) {
+    ElMessage.error('获取容器日志异常')
+    console.error(e)
+  } finally {
+    containerLogsLoading.value = false
+  }
+}
+
+function copyContainerLogs() {
+  navigator.clipboard.writeText(containerLogs.value).then(() => {
+    ElMessage.success('已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败')
+  })
+}
+
 onMounted(() => {
   loadLogs()
   let debounceTimer: ReturnType<typeof setTimeout> | null = null
@@ -145,6 +176,7 @@ onUnmounted(() => {
           <el-option label="错误" value="error" />
         </el-select>
         <el-button :icon="Refresh" @click="loadLogs" :loading="loading">刷新</el-button>
+        <el-button :icon="DocumentCopy" @click="loadContainerLogs" :loading="containerLogsLoading">查看原始日志</el-button>
         <el-button :icon="Delete" type="danger" @click="handleClear">清空日志</el-button>
       </div>
     </div>
@@ -198,6 +230,20 @@ onUnmounted(() => {
         @change="loadLogs"
       />
     </div>
+
+    <el-dialog v-model="containerLogsVisible" title="MinerU 容器原始日志" width="90%" :close-on-click-modal="false">
+      <div class="container-logs-header">
+        <div class="log-controls">
+          <el-input v-model="containerName" placeholder="容器名称" style="width: 200px" />
+          <el-input-number v-model="containerLogLines" :min="10" :max="1000" placeholder="日志行数" />
+          <el-button :icon="Refresh" @click="loadContainerLogs" :loading="containerLogsLoading">重新加载</el-button>
+          <el-button :icon="DocumentCopy" @click="copyContainerLogs">复制日志</el-button>
+        </div>
+      </div>
+      <div class="container-logs-content">
+        <pre>{{ containerLogs }}</pre>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -456,5 +502,41 @@ onUnmounted(() => {
     margin-left: 0;
     margin-top: 8px;
   }
+}
+
+.container-logs-header {
+  margin-bottom: 16px;
+}
+
+.log-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.log-controls :deep(.el-input) {
+  width: auto;
+}
+
+.log-controls :deep(.el-input-number) {
+  width: 120px;
+}
+
+.container-logs-content {
+  background: #f5f7fa;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  max-height: 600px;
+  overflow: auto;
+}
+
+.container-logs-content pre {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #333;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 </style>

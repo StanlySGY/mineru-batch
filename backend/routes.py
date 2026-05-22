@@ -848,6 +848,37 @@ async def clear_logs(db: Session = Depends(get_db), _: None = Depends(require_ad
     return {"detail": "cleared", "count": count}
 
 
+@router.get("/logs/mineru-container")
+async def get_mineru_container_logs(
+    container_name: str = Query("mineru-full", description="MinerU container name"),
+    lines: int = Query(100, ge=1, le=1000, description="Number of log lines to retrieve"),
+):
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "--tail", str(lines), container_name],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            return {
+                "ok": False,
+                "error": result.stderr or "Container not found or docker not available",
+            }
+        return {
+            "ok": True,
+            "container": container_name,
+            "logs": result.stdout,
+            "lines": len(result.stdout.splitlines()),
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Docker command timeout"}
+    except FileNotFoundError:
+        return {"ok": False, "error": "Docker command not found"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @router.get("/storage")
 async def get_storage_stats():
     db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mineru_batch.db")

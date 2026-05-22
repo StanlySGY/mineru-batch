@@ -350,6 +350,11 @@ export const api = {
     return data
   },
 
+  async getMinerUContainerLogs(containerName: string = 'mineru-full', lines: number = 100) {
+    const { data } = await http.get('/logs/mineru-container', { params: { container_name: containerName, lines } })
+    return data as { ok: boolean; container?: string; logs?: string; lines?: number; error?: string }
+  },
+
   async testConnection(params: { mineru_api: string; server_url: string }) {
     const { data } = await http.post('/test-connection', params)
     return data as { ok: boolean; detail?: string; error?: string }
