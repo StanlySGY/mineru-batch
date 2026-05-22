@@ -1176,13 +1176,13 @@ function checkMobile() {
   padding: 0;
   display: flex;
   flex-direction: column;
-  overflow-y: scroll;
+  overflow: hidden;
   overflow-x: hidden;
   box-sizing: border-box;
 }
 .split-render-pane {
   padding: 12px;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
   box-sizing: border-box;
 }
@@ -1191,7 +1191,8 @@ function checkMobile() {
   border: none;
   box-shadow: none;
   resize: none;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: Consolas, Monaco, 'Andale Mono', 'Ubuntu Mono', monospace;
   font-size: 13px;
   line-height: 1.6;
