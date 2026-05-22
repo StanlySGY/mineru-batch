@@ -8,12 +8,21 @@ http.interceptors.response.use(
   (res) => res,
   (err) => {
     if (!err.response) {
-      ElMessage.error('网络连接失败，请检查服务是否运行')
+      // 只在首次连接失败时提示一次
+      if (!window.__apiErrorShown) {
+        window.__apiErrorShown = true
+        ElMessage.warning('后端服务未连接，仅可预览界面')
+      }
     } else {
       const status = err.response.status
-      if (status === 500) ElMessage.error('服务器内部错误')
-      else if (status === 413) ElMessage.error('请求体过大')
-      else if (status && status >= 400) {
+      // 404 是预期的（后端未部署），不显示错误
+      if (status === 404) {
+        // 静默处理
+      } else if (status === 500) {
+        ElMessage.error('服务器内部错误')
+      } else if (status === 413) {
+        ElMessage.error('请求体过大')
+      } else if (status && status >= 400) {
         const msg = err.response?.data?.detail
         if (msg && typeof msg === 'string') ElMessage.error(msg)
         else ElMessage.error(`请求失败 (${status})`)
@@ -22,6 +31,12 @@ http.interceptors.response.use(
     return Promise.reject(err)
   },
 )
+
+declare global {
+  interface Window {
+    __apiErrorShown?: boolean
+  }
+}
 
 export interface TaskItem {
   id: number
