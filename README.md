@@ -50,26 +50,10 @@
 
 ## 🏗️ 架构设计
 
-```mermaid
-graph TB
-    User[用户浏览器] -->|上传文件| LB[MinerU Batch 调度器]
-    LB -->|轮询分配| N1[MinerU 节点 1]
-    LB -->|轮询分配| N2[MinerU 节点 2]
-    LB -->|轮询分配| N3[MinerU 节点 3]
-    N1 -->|解析结果| LB
-    N2 -->|解析结果| LB
-    N3 -->|解析结果| LB
-    LB -->|SSE 推送| User
-    LB -->|存储| DB[(SQLite/PostgreSQL)]
-    LB -->|文件| FS[文件系统]
-    LB -->|Webhook| EXT[外部服务]
-    
-    subgraph MinerU Batch
-        LB
-        DB
-        FS
-    end
-```
+<div align="center">
+<img src="docs/架构图.png" width="85%" alt="系统架构设计" />
+<p><em>🏗️ 系统架构：多节点负载均衡、异步任务队列、实时状态推送</em></p>
+</div>
 
 **核心能力：**
 - 🔄 多节点负载均衡（Round-Robin）
