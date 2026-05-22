@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
-  DataAnalysis, UploadFilled, List, Document, Setting, Expand, Fold,
+  DataAnalysis, UploadFilled, List, Document, Setting, Expand, Fold, Connection,
 } from '@element-plus/icons-vue'
 import { api } from '../api'
 
@@ -18,6 +18,7 @@ const navItems = [
   { path: '/upload', icon: UploadFilled, label: '上传解析' },
   { path: '/tasks', icon: List, label: '任务管理' },
   { path: '/logs', icon: Document, label: '运行日志' },
+  { path: '/mineru-logs', icon: Connection, label: 'MinerU 日志' },
   { path: '/settings', icon: Setting, label: '系统设置' },
 ]
 

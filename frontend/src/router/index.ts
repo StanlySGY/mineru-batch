@@ -6,6 +6,7 @@ const routes = [
   { path: '/upload', name: 'Upload', component: () => import('../views/Upload.vue'), meta: { title: '上传解析' } },
   { path: '/tasks', name: 'Tasks', component: () => import('../views/Tasks.vue'), meta: { title: '任务管理' } },
   { path: '/logs', name: 'Logs', component: () => import('../views/Logs.vue'), meta: { title: '运行日志' } },
+  { path: '/mineru-logs', name: 'MinerULogs', component: () => import('../views/MinerULogs.vue'), meta: { title: 'MinerU 日志' } },
   { path: '/settings', name: 'Settings', component: () => import('../views/Settings.vue'), meta: { title: '系统设置' } },
   { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('../views/NotFound.vue'), meta: { title: '页面不存在' } },
 ]
