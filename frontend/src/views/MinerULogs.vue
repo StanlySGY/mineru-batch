@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Delete, Refresh, Search } from '@element-plus/icons-vue'
+import { Delete, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type LogGroup } from '../api'
 import { formatTime } from '../utils/format'
@@ -10,7 +10,6 @@ const total = ref(0)
 const page = ref(1)
 const size = ref(20)
 const filterLevel = ref('')
-const filterSearch = ref('')
 const loading = ref(false)
 const firstLoad = ref(true)
 const expandedTaskIds = ref<Set<number>>(new Set())
@@ -102,11 +101,12 @@ function getMinerULogs(logs: any[]) {
 
 onMounted(() => {
   loadLogs()
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null
   sseClose = api.onTaskEvent(
     () => {
-      const debounce = setTimeout(() => loadLogs(), 500)
-      return () => clearTimeout(debounce)
-    }(),
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => loadLogs(), 500)
+    },
   )
 })
 
