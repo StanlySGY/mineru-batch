@@ -593,6 +593,11 @@ async def test_connection(body: dict = None):
     return await test_connection_impl(body, _validate_external_url, ALLOW_PRIVATE_ENDPOINTS)
 
 
+@router.get("/security/status")
+async def security_status():
+    return {"adminRequired": bool(ADMIN_API_KEY), "allowPrivateEndpoints": ALLOW_PRIVATE_ENDPOINTS}
+
+
 @router.get("/settings")
 async def get_settings(db: Session = Depends(get_db)):
     return sanitize_settings(get_settings_from_db(db))
@@ -729,7 +734,7 @@ async def batch_delete_tasks(ids: str = Query(..., description="comma-separated 
 
 @router.post("/tasks/batch/retry")
 async def batch_retry_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    return await batch_retry_tasks_impl(db, ids, _enqueue_task)
+    return await batch_retry_tasks_impl(db, ids, _safe_remove, _enqueue_task)
 
 
 @router.post("/tasks/batch/convert")

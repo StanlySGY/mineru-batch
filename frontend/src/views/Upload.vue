@@ -55,17 +55,25 @@ const sessionConfig = computed(() => ({
 }))
 
 // 每批上传独立选择的节点列表，不从 store 持久化
+const nodePings = ref<Record<string, { latency: number | null; status: 'green' | 'yellow' | 'red' | 'testing' }>>({})
+
 const selectedEndpoints = ref<MineruEndpoint[]>(
   cfg.mineruEndpoints.value.filter(e => e.enabled)
 )
 
+const enabledEndpoints = computed(() => cfg.mineruEndpoints.value.filter(e => e.enabled))
+const selectedAvailableEndpoints = computed(() => selectedEndpoints.value.filter(ep => ep.enabled && nodePings.value[ep.url]?.status !== 'red'))
+const selectedUnavailableCount = computed(() => selectedEndpoints.value.length - selectedAvailableEndpoints.value.length)
+const canStartUpload = computed(() => !uploading.value && fileList.value.length > 0 && selectedAvailableEndpoints.value.length > 0)
+
 function toggleEndpoint(url: string) {
+  const found = cfg.mineruEndpoints.value.find(e => e.url === url)
+  if (!found?.enabled) return
   const idx = selectedEndpoints.value.findIndex(e => e.url === url)
   if (idx >= 0) {
     selectedEndpoints.value.splice(idx, 1)
   } else {
-    const found = cfg.mineruEndpoints.value.find(e => e.url === url)
-    if (found) selectedEndpoints.value.push({ ...found })
+    selectedEndpoints.value.push({ ...found })
   }
 }
 
@@ -207,6 +215,9 @@ async function handleDrop(e: DragEvent) {
 async function handleUpload() {
   const rawFiles = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
   if (!rawFiles.length) return ElMessage.warning('请选择文件')
+  if (!enabledEndpoints.value.length) return ElMessage.warning('没有启用的解析节点，请先在设置页启用节点')
+  if (!selectedEndpoints.value.length) return ElMessage.warning('请至少选择一个解析节点')
+  if (!selectedAvailableEndpoints.value.length) return ElMessage.warning('已选择的解析节点当前不可用，请检查节点状态')
   uploading.value = true
   uploadProgress.value = 0
   uploadSpeed.value = ''
@@ -222,9 +233,7 @@ async function handleUpload() {
       backend: sc.backend,
       mineruApi: sc.mineruApi,
       serverUrl: sc.serverUrl,
-      endpoints: selectedEndpoints.value.length > 0
-        ? JSON.stringify(selectedEndpoints.value)
-        : undefined,
+      endpoints: JSON.stringify(selectedAvailableEndpoints.value),
       parseMethod: sc.parseMethod,
       langList: sc.langList,
       formulaEnable: sc.formulaEnable,
@@ -349,8 +358,6 @@ onUnmounted(() => {
     abortController.value.abort()
   }
 })
-
-const nodePings = ref<Record<string, { latency: number | null; status: 'green' | 'yellow' | 'red' | 'testing' }>>({})
 
 async function pingAllNodes() {
   cfg.mineruEndpoints.value.forEach(async (ep) => {
@@ -493,18 +500,19 @@ onMounted(() => {
             v-for="ep in cfg.mineruEndpoints.value"
             :key="ep.url"
             class="node-row"
-            :class="{ selected: selectedEndpoints.some(e => e.url === ep.url) }"
+            :class="{ selected: selectedEndpoints.some(e => e.url === ep.url), disabled: !ep.enabled, unavailable: nodePings[ep.url]?.status === 'red' }"
             @click="toggleEndpoint(ep.url)"
           >
             <el-checkbox
               :model-value="selectedEndpoints.some(e => e.url === ep.url)"
+              :disabled="!ep.enabled"
               size="small"
               @click.stop
               @change="toggleEndpoint(ep.url)"
             />
             <div class="node-info">
               <span class="node-url">{{ ep.url }}</span>
-              <span class="node-meta">{{ ep.backend }}</span>
+              <span class="node-meta">{{ ep.backend }} · {{ ep.enabled ? '启用' : '禁用' }}</span>
             </div>
             <!-- Ping Status Indicator -->
             <div v-if="nodePings[ep.url]" class="node-ping-badge" :class="nodePings[ep.url].status">
@@ -517,7 +525,9 @@ onMounted(() => {
             </div>
           </div>
         </div>
-        <div v-if="!selectedEndpoints.length" class="form-tip warn">请至少选择一个节点</div>
+        <div v-if="!enabledEndpoints.length" class="form-tip warn">没有启用的节点，请先在设置页启用</div>
+        <div v-else-if="!selectedEndpoints.length" class="form-tip warn">请至少选择一个节点</div>
+        <div v-else-if="selectedUnavailableCount" class="form-tip warn">{{ selectedUnavailableCount }} 个已选节点不可用，上传时会自动跳过</div>
       </div>
       <div v-else class="card-section">
         <div class="no-nodes">
@@ -543,7 +553,7 @@ onMounted(() => {
       </div>
 
       <div class="card-section">
-        <el-button type="primary" size="large" :loading="uploading" @click="handleUpload" class="submit-btn">
+        <el-button type="primary" size="large" :loading="uploading" :disabled="!canStartUpload" @click="handleUpload" class="submit-btn">
           开始解析
         </el-button>
       </div>
@@ -699,6 +709,9 @@ onMounted(() => {
 }
 .node-row:hover { background: #f5f7fa; border-color: #e4e7ed; }
 .node-row.selected { background: #ecf5ff; border-color: #409eff; }
+.node-row.disabled { cursor: not-allowed; opacity: 0.55; }
+.node-row.disabled:hover { background: transparent; border-color: transparent; }
+.node-row.unavailable:not(.disabled) { border-color: #fcd3d3; }
 .node-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .node-url { font-size: 12px; color: #303133; font-weight: 500; word-break: break-all; }
 .node-meta { font-size: 11px; color: #909399; }

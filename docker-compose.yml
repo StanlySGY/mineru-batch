@@ -1,9 +1,6 @@
 # MinerU Batch 部署配置
 # ──────────────────────────────────────────────
-# 更新版本时需修改以下位置：
-#   1. 本文件 image 的 tag（如 v0.1.0 → v0.2.0）
-#   2. VERSION 文件
-#   3. docker-build.sh 中的版本号
+# 更新版本时只需修改 VERSION 文件，docker-build.sh 会写入 .env 的 TAG。
 # ──────────────────────────────────────────────
 #
 # 切换 PostgreSQL：取消下方注释，注释掉 app 中的 DATABASE_URL
@@ -19,13 +16,15 @@
 
 services:
   app:
-    image: mineru-batch:v0.1.0
+    image: mineru-batch:${TAG:-v0.1.0}
     ports:
-      - "8900:8900"
+      - "${APP_PORT:-8900}:8900"
     volumes:
       - data:/data
     environment:
-      - TZ=Asia/Shanghai
+      - TZ=${TZ:-Asia/Shanghai}
+      - ADMIN_API_KEY=${ADMIN_API_KEY:-}
+      - ALLOW_PRIVATE_ENDPOINTS=${ALLOW_PRIVATE_ENDPOINTS:-true}
       # PostgreSQL 示例（取消注释启用）:
       # - DATABASE_URL=postgresql://mineru:mineru_pass@postgres:5432/mineru
     restart: unless-stopped

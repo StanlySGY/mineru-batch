@@ -4,7 +4,6 @@ import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from 
 import { useRouter } from 'vue-router'
 import { api, type TaskItem, type QualityReport } from '../api'
 import { formatTime } from '../utils/format'
-import { useConfig } from '../stores/config'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -13,7 +12,6 @@ import { CanvasRenderer } from 'echarts/renderers'
 echarts.use([BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
-const cfg = useConfig()
 const stats = ref({ total: 0, pending: 0, processing: 0, completed: 0, failed: 0, avg_duration_ms: 0 })
 const recentTasks = ref<TaskItem[]>([])
 const loading = ref(false)
@@ -152,7 +150,7 @@ const resizeHandler = () => { chartRef.value?.resize(); pieRef.value?.resize() }
 
 onMounted(() => {
   loadStats().then(() => { loadTrend(); loadFiletypes() })
-  if (!localStorage.getItem('welcome_dismissed') && cfg.mineruEndpoints.value.length === 0) {
+  if (!localStorage.getItem('welcome_dismissed') && !localStorage.getItem('cfg_mineru_endpoints')) {
     showWelcome.value = true
   }
   sseClose = api.onTaskEvent(

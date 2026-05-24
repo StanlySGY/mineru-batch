@@ -1,8 +1,25 @@
-import axios from 'axios'
+import axios, { AxiosHeaders } from 'axios'
 import { ElMessage } from 'element-plus'
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || '/api'
+const adminKeyStorage = 'admin_api_key'
 const http = axios.create({ baseURL: apiBase })
+
+function getStoredAdminKey() {
+  return localStorage.getItem(adminKeyStorage) || ''
+}
+
+function setStoredAdminKey(key: string) {
+  const value = key.trim()
+  if (value) localStorage.setItem(adminKeyStorage, value)
+  else localStorage.removeItem(adminKeyStorage)
+}
+
+http.interceptors.request.use((config) => {
+  const key = getStoredAdminKey()
+  if (key) config.headers = AxiosHeaders.from(config.headers).set('X-Admin-Api-Key', key)
+  return config
+})
 
 http.interceptors.response.use(
   (res) => res,
@@ -183,6 +200,19 @@ export function notifyTaskComplete(filename: string, status: string) {
 }
 
 export const api = {
+  getAdminKey() {
+    return getStoredAdminKey()
+  },
+
+  setAdminKey(key: string) {
+    setStoredAdminKey(key)
+  },
+
+  async getSecurityStatus() {
+    const { data } = await http.get('/security/status')
+    return data as { adminRequired: boolean; allowPrivateEndpoints: boolean }
+  },
+
   async getStats() {
     const { data } = await http.get('/stats')
     return data as { total: number; pending: number; processing: number; completed: number; failed: number; avg_duration_ms: number }

@@ -147,13 +147,27 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="mineru-logs-container">
-    <div class="header">
-      <h1>🔌 MinerU 节点日志</h1>
-      <p class="subtitle">实时查看 MinerU API 调用、连接状态、超时等关键日志</p>
-    </div>
+  <div class="mineru-logs-page">
+    <el-card shadow="never" class="logs-card">
+      <template #header>
+        <div class="page-header">
+          <div>
+            <span class="card-title">MinerU 节点日志</span>
+            <p class="subtitle">实时查看 MinerU API 调用、连接状态、超时等关键日志</p>
+          </div>
+          <div class="controls">
+            <el-select v-model="filterLevel" placeholder="日志级别" clearable @change="page = 1; loadLogs()">
+              <el-option label="信息" value="info" />
+              <el-option label="警告" value="warn" />
+              <el-option label="错误" value="error" />
+            </el-select>
+            <el-button :icon="Refresh" @click="loadLogs" :loading="loading">刷新</el-button>
+            <el-button :icon="DocumentCopy" @click="loadContainerLogs" :loading="containerLogsLoading">查看原始日志</el-button>
+            <el-button :icon="Delete" type="danger" @click="handleClear">清空日志</el-button>
+          </div>
+        </div>
+      </template>
 
-    <div class="toolbar">
       <div class="stats">
         <div class="stat-item">
           <span class="label">信息</span>
@@ -169,67 +183,56 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <div class="controls">
-        <el-select v-model="filterLevel" placeholder="日志级别" clearable @change="page = 1; loadLogs()">
-          <el-option label="信息" value="info" />
-          <el-option label="警告" value="warn" />
-          <el-option label="错误" value="error" />
-        </el-select>
-        <el-button :icon="Refresh" @click="loadLogs" :loading="loading">刷新</el-button>
-        <el-button :icon="DocumentCopy" @click="loadContainerLogs" :loading="containerLogsLoading">查看原始日志</el-button>
-        <el-button :icon="Delete" type="danger" @click="handleClear">清空日志</el-button>
-      </div>
-    </div>
-
-    <div class="logs-list" v-loading="loading && firstLoad">
-      <div v-if="filteredGroups.length === 0 && !loading" class="empty-state">
-        <p>暂无 MinerU 相关日志</p>
-      </div>
-
-      <div v-for="group in filteredGroups" :key="group.task_id" class="log-group">
-        <div class="group-header" @click="toggleGroup(group.task_id)">
-          <div class="group-info">
-            <span class="toggle-icon" :class="{ expanded: isGroupExpanded(group.task_id) }">▶</span>
-            <span class="filename">{{ group.filename }}</span>
-            <span class="status" :style="{ color: group.status === 'completed' ? '#67c23a' : group.status === 'failed' ? '#f56c6c' : '#e6a23c' }">
-              {{ group.status }}
-            </span>
-            <span class="time">{{ formatTime(group.created_at) }}</span>
-          </div>
-          <div class="log-count">
-            {{ getMinerULogs(group.logs).length }} 条日志
-          </div>
+      <div class="logs-list" v-loading="loading && firstLoad">
+        <div v-if="filteredGroups.length === 0 && !loading" class="empty-state">
+          <el-empty description="暂无 MinerU 相关日志" :image-size="80" />
         </div>
 
-        <transition name="expand">
-          <div v-show="isGroupExpanded(group.task_id)" class="group-content">
-            <div v-for="log in getMinerULogs(group.logs)" :key="log.id" class="log-item">
-              <div class="log-header" @click="toggleLogDetail(log.id)">
-                <span class="level-badge" :style="{ backgroundColor: getLevelColor(log.level) }">{{ log.level.toUpperCase() }}</span>
-                <span class="message">{{ log.message }}</span>
-                <span class="time">{{ formatTime(log.created_at) }}</span>
-              </div>
-              <transition name="expand">
-                <div v-show="expandedLogId === log.id" class="log-detail">
-                  <pre>{{ log.detail }}</pre>
-                </div>
-              </transition>
+        <div v-for="group in filteredGroups" :key="group.task_id" class="log-group">
+          <div class="group-header" @click="toggleGroup(group.task_id)">
+            <div class="group-info">
+              <span class="toggle-icon" :class="{ expanded: isGroupExpanded(group.task_id) }">▶</span>
+              <span class="filename">{{ group.filename }}</span>
+              <span class="status" :style="{ color: group.status === 'completed' ? '#67c23a' : group.status === 'failed' ? '#f56c6c' : '#e6a23c' }">
+                {{ group.status }}
+              </span>
+              <span class="time">{{ formatTime(group.created_at) }}</span>
+            </div>
+            <div class="log-count">
+              {{ getMinerULogs(group.logs).length }} 条日志
             </div>
           </div>
-        </transition>
-      </div>
-    </div>
 
-    <div class="pagination">
-      <el-pagination
-        v-model:current-page="page"
-        v-model:page-size="size"
-        :page-sizes="[10, 20, 50]"
-        :total="total"
-        layout="total, sizes, prev, pager, next"
-        @change="loadLogs"
-      />
-    </div>
+          <transition name="expand">
+            <div v-show="isGroupExpanded(group.task_id)" class="group-content">
+              <div v-for="log in getMinerULogs(group.logs)" :key="log.id" class="log-item">
+                <div class="log-header" @click="toggleLogDetail(log.id)">
+                  <span class="level-badge" :style="{ backgroundColor: getLevelColor(log.level) }">{{ log.level.toUpperCase() }}</span>
+                  <span class="message">{{ log.message }}</span>
+                  <span class="time">{{ formatTime(log.created_at) }}</span>
+                </div>
+                <transition name="expand">
+                  <div v-show="expandedLogId === log.id" class="log-detail">
+                    <pre>{{ log.detail }}</pre>
+                  </div>
+                </transition>
+              </div>
+            </div>
+          </transition>
+        </div>
+      </div>
+
+      <div class="pagination">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="size"
+          :page-sizes="[10, 20, 50]"
+          :total="total"
+          layout="total, sizes, prev, pager, next"
+          @change="loadLogs"
+        />
+      </div>
+    </el-card>
 
     <el-dialog v-model="containerLogsVisible" title="MinerU 容器原始日志" width="90%" :close-on-click-modal="false">
       <div class="container-logs-header">
@@ -248,62 +251,37 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.mineru-logs-container {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
+.mineru-logs-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.header {
-  margin-bottom: 24px;
+.logs-card {
+  border-radius: 12px;
 }
 
-.header h1 {
-  margin: 0 0 8px 0;
-  font-size: 24px;
-  color: #333;
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.card-title {
+  font-weight: 600;
 }
 
 .subtitle {
-  margin: 0;
-  color: #666;
-  font-size: 14px;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding: 16px;
-  background: #f5f7fa;
-  border-radius: 4px;
-}
-
-.stats {
-  display: flex;
-  gap: 24px;
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stat-item .label {
-  color: #666;
-  font-size: 14px;
-}
-
-.stat-item .count {
-  font-weight: bold;
-  font-size: 18px;
+  margin: 6px 0 0;
+  color: #909399;
+  font-size: 13px;
 }
 
 .controls {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -311,9 +289,35 @@ onUnmounted(() => {
   width: 120px;
 }
 
+.stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f7f8fa;
+  border-radius: 8px;
+}
+
+.stat-item .label {
+  color: #909399;
+  font-size: 13px;
+}
+
+.stat-item .count {
+  font-weight: 700;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
 .logs-list {
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
+  border: 1px solid #ebeef5;
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -335,14 +339,15 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  gap: 12px;
+  padding: 13px 16px;
   background: #fafafa;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .group-header:hover {
-  background: #f0f2f5;
+  background: #f5f7fa;
 }
 
 .group-info {
@@ -350,12 +355,14 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
   flex: 1;
+  min-width: 0;
 }
 
 .toggle-icon {
   display: inline-block;
-  transition: transform 0.2s;
+  flex-shrink: 0;
   color: #909399;
+  transition: transform 0.2s;
 }
 
 .toggle-icon.expanded {
@@ -363,31 +370,33 @@ onUnmounted(() => {
 }
 
 .filename {
-  font-weight: 500;
-  color: #333;
-  max-width: 300px;
+  max-width: 360px;
   overflow: hidden;
+  color: #303133;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .status {
-  font-size: 12px;
+  flex-shrink: 0;
   padding: 2px 8px;
-  border-radius: 2px;
   background: #f0f9ff;
+  border-radius: 10px;
+  font-size: 12px;
 }
 
 .time {
+  flex-shrink: 0;
+  margin-left: auto;
   color: #909399;
   font-size: 12px;
-  margin-left: auto;
 }
 
 .log-count {
+  flex-shrink: 0;
   color: #909399;
   font-size: 12px;
-  margin-left: 16px;
 }
 
 .group-content {
@@ -413,43 +422,45 @@ onUnmounted(() => {
 }
 
 .log-header:hover {
-  background: #f5f7fa;
+  background: #f7f8fa;
 }
 
 .level-badge {
   display: inline-block;
+  flex-shrink: 0;
+  min-width: 50px;
   padding: 2px 8px;
-  border-radius: 2px;
+  border-radius: 10px;
   color: white;
   font-size: 11px;
-  font-weight: bold;
-  min-width: 50px;
+  font-weight: 700;
   text-align: center;
 }
 
 .message {
   flex: 1;
-  color: #333;
+  min-width: 0;
+  color: #303133;
   font-size: 14px;
   word-break: break-word;
 }
 
 .log-detail {
   padding: 12px 16px;
-  background: #f5f7fa;
+  background: #f7f8fa;
   border-top: 1px solid #ebeef5;
 }
 
 .log-detail pre {
   margin: 0;
   padding: 12px;
-  background: #fff;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
   overflow-x: auto;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  color: #303133;
   font-size: 12px;
   line-height: 1.5;
-  color: #333;
 }
 
 .pagination {
@@ -469,47 +480,13 @@ onUnmounted(() => {
   max-height: 0;
 }
 
-@media (max-width: 768px) {
-  .toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .controls {
-    flex-direction: column;
-  }
-
-  .controls :deep(.el-select) {
-    width: 100%;
-  }
-
-  .group-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .log-count {
-    margin-left: 0;
-    margin-top: 8px;
-  }
-
-  .log-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .time {
-    margin-left: 0;
-    margin-top: 8px;
-  }
-}
-
 .container-logs-header {
   margin-bottom: 16px;
 }
 
 .log-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
@@ -523,20 +500,62 @@ onUnmounted(() => {
 }
 
 .container-logs-content {
-  background: #f5f7fa;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
   max-height: 600px;
   overflow: auto;
+  background: #f7f8fa;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
 }
 
 .container-logs-content pre {
   margin: 0;
   padding: 12px;
+  color: #303133;
   font-size: 12px;
   line-height: 1.5;
-  color: #333;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+  }
+
+  .controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .controls :deep(.el-select) {
+    width: 100%;
+  }
+
+  .controls :deep(.el-button) {
+    flex: 1;
+  }
+
+  .stats {
+    flex-direction: column;
+  }
+
+  .group-header,
+  .log-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .group-info {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .filename {
+    max-width: 100%;
+  }
+
+  .time {
+    margin-left: 0;
+  }
 }
 </style>

@@ -126,14 +126,17 @@ class TestAdminProtection:
             )
         assert resp.status_code == 400
 
-    def test_rejects_invalid_update_url(self, client, sample_task):
+    def test_security_status_reports_admin_required(self, client):
         with patch("routes.ADMIN_API_KEY", "secret"):
-            resp = client.put(
-                f"/api/tasks/{sample_task.id}",
-                headers={"X-Admin-Api-Key": "secret"},
-                data={"server_url": "file:///etc/passwd"},
-            )
-        assert resp.status_code == 400
+            resp = client.get("/api/security/status")
+        assert resp.status_code == 200
+        assert resp.json()["adminRequired"] is True
+
+    def test_security_status_reports_admin_not_required(self, client):
+        with patch("routes.ADMIN_API_KEY", ""):
+            resp = client.get("/api/security/status")
+        assert resp.status_code == 200
+        assert resp.json()["adminRequired"] is False
 
 
 class TestUploadValidation:

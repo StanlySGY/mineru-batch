@@ -174,6 +174,26 @@ class TestBatchOperations:
         assert resp.status_code == 200
         assert resp.json()["count"] == 0  # PENDING not retryable
 
+    def test_batch_retry_removes_output_directory(self, client, sample_task, db_session, tmp_dirs):
+        out_dir = os.path.join(tmp_dirs["output"], "bundle")
+        os.makedirs(out_dir)
+        with open(os.path.join(out_dir, "output.md"), "w") as f:
+            f.write("# Hello")
+        sample_task.status = TaskStatus.COMPLETED
+        sample_task.output_path = out_dir
+        db_session.commit()
+
+        with patch("routes._enqueue_task") as enqueue:
+            resp = client.post("/api/tasks/batch/retry", params={"ids": str(sample_task.id)})
+
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 1
+        assert not os.path.exists(out_dir)
+        enqueue.assert_called_once_with(sample_task.id)
+        db_session.refresh(sample_task)
+        assert sample_task.status == TaskStatus.PENDING
+        assert sample_task.output_path is None
+
 
 class TestPreviewDownload:
     def test_preview_pending_400(self, client, sample_task):

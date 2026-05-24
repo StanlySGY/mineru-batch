@@ -9,7 +9,7 @@ dev-frontend:
 	cd frontend && npm run dev
 
 dev-backend:
-	DEV_MODE=1 cd backend && uvicorn main:app --host 0.0.0.0 --port 8900 --reload
+	cd backend && DEV_MODE=1 uvicorn main:app --host 0.0.0.0 --port 8900 --reload
 
 # 构建
 build:

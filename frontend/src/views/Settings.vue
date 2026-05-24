@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfig } from '../stores/config'
@@ -15,6 +15,21 @@ const nodePings = ref<Record<number, { latency: number | null; status: 'green' |
 const concurrency = ref(5)
 const storage = ref<{ uploads: number; outputs: number; converted: number; database: number; total: number } | null>(null)
 const savingSettings = ref(false)
+const adminKeyInput = ref(api.getAdminKey())
+const securityStatus = ref<{ adminRequired: boolean; allowPrivateEndpoints: boolean } | null>(null)
+const hasAdminKey = computed(() => adminKeyInput.value.trim().length > 0)
+
+async function loadSecurityStatus() {
+  try {
+    securityStatus.value = await api.getSecurityStatus()
+  } catch {}
+}
+
+function saveAdminKey() {
+  api.setAdminKey(adminKeyInput.value)
+  adminKeyInput.value = api.getAdminKey()
+  ElMessage.success(adminKeyInput.value ? '管理员 Key 已保存到本机浏览器' : '管理员 Key 已清除')
+}
 
 async function loadServerSettings() {
   try {
@@ -206,6 +221,7 @@ function handleImportConfig() {
   input.click()
 }
 
+loadSecurityStatus()
 loadServerSettings()
 loadConcurrency()
 loadStorage()
@@ -239,6 +255,37 @@ const paramTable = [
 
 <template>
 <div class="settings-page">
+  <el-card shadow="never" class="settings-card admin-card">
+    <template #header>
+      <span class="card-title">安全与权限</span>
+    </template>
+
+    <div class="security-grid">
+      <div class="security-row">
+        <span class="security-label">管理员保护</span>
+        <el-tag v-if="securityStatus?.adminRequired" type="warning">已启用</el-tag>
+        <el-tag v-else type="info">未启用</el-tag>
+      </div>
+      <div class="security-row">
+        <span class="security-label">私有地址节点</span>
+        <el-tag v-if="securityStatus?.allowPrivateEndpoints" type="success">允许</el-tag>
+        <el-tag v-else type="danger">禁止</el-tag>
+      </div>
+    </div>
+
+    <el-form label-position="top" class="admin-form">
+      <el-form-item label="管理员 Key">
+        <div class="admin-key-row">
+          <el-input v-model="adminKeyInput" placeholder="填写部署环境中的 ADMIN_API_KEY" show-password clearable />
+          <el-button type="primary" @click="saveAdminKey">保存</el-button>
+        </div>
+        <div class="form-tip">
+          {{ securityStatus?.adminRequired ? (hasAdminKey ? '已配置本机管理员 Key，管理操作会自动携带认证头' : '后端已启用管理员保护，保存配置、删除、重试、清理等操作需要填写 Key') : '后端未设置 ADMIN_API_KEY，当前管理操作不需要 Key' }}
+        </div>
+      </el-form-item>
+    </el-form>
+  </el-card>
+
   <el-card shadow="never" class="settings-card">
     <template #header>
       <div class="settings-header">
@@ -430,6 +477,12 @@ const paramTable = [
   display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
 }
 .settings-card, .info-card { border-radius: 12px; }
+.admin-card { grid-column: 1 / -1; }
+.admin-form { margin-top: 14px; }
+.admin-key-row { display: flex; gap: 10px; }
+.security-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.security-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.security-label { color: #606266; }
 .settings-form { display: flex; flex-direction: column; gap: 2px; }
 .card-title { font-weight: 600; }
 .form-tip { font-size: 12px; color: #909399; margin-top: 2px; }
