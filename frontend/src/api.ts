@@ -446,7 +446,7 @@ export const api = {
 
     function connect() {
       if (stopped) return
-      es = new EventSource('/api/tasks/events')
+      es = new EventSource(apiUrl('/tasks/events'))
       es.onopen = () => {
         reconnectAttempts = 0
         onStatusChange?.(true)
