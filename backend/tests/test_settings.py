@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from models import AppSetting
 
 
@@ -41,3 +43,14 @@ class TestSettings:
         payload["mineruEndpoints"][0]["url"] = "ftp://example.com/file_parse"
         resp = client.put("/api/settings", json=payload)
         assert resp.status_code == 400
+
+    def test_private_endpoint_rejected_when_disabled(self, client):
+        with patch("services.settings_service.ALLOW_PRIVATE_ENDPOINTS", False):
+            resp = client.put("/api/settings", json=_settings_payload())
+        assert resp.status_code == 400
+        assert "host is not allowed" in resp.json()["detail"]
+
+    def test_private_endpoint_allowed_when_enabled(self, client):
+        with patch("services.settings_service.ALLOW_PRIVATE_ENDPOINTS", True):
+            resp = client.put("/api/settings", json=_settings_payload())
+        assert resp.status_code == 200

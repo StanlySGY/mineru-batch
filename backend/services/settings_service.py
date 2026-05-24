@@ -1,5 +1,6 @@
 """Settings service — business logic for settings operations."""
 import json
+import os
 import re
 import socket
 import ipaddress
@@ -14,7 +15,7 @@ from models import AppSetting
 
 SETTINGS_KEY = "app_settings"
 MASKED_API_KEY = "********"
-ALLOW_PRIVATE_ENDPOINTS = True
+ALLOW_PRIVATE_ENDPOINTS = os.environ.get("ALLOW_PRIVATE_ENDPOINTS", "true").lower() in ("1", "true", "yes")
 BLOCKED_URL_HOSTS = {"localhost", "localhost.localdomain"}
 
 DEFAULT_SETTINGS = {

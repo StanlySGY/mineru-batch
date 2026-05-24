@@ -156,7 +156,7 @@ Frontend and backend run separately with hot reload:
 | `CONVERT_DIR` | `./converted` | Document conversion directory |
 | `DATABASE_URL` | `sqlite:///./mineru_batch.db` | Database connection URL |
 | `ADMIN_API_KEY` | — | Admin API key; required for delete, retry, cleanup, and settings updates when set |
-| `ALLOW_PRIVATE_ENDPOINTS` | `false` | Whether MinerU endpoints may use private/internal addresses; Docker Compose example defaults to `true` |
+| `ALLOW_PRIVATE_ENDPOINTS` | `true` | Whether MinerU endpoints may use private/internal addresses; set to `false` for public production deployments |
 | `TAG` | `v0.1.0` | Docker Compose image tag |
 | `APP_PORT` | `8900` | Docker Compose published port |
 | `TZ` | `Asia/Shanghai` | Container timezone |
@@ -171,7 +171,7 @@ mineru-batch/
 │   ├── routes.py        # API routes (upload, tasks, logs, stats)
 │   ├── models.py        # SQLAlchemy models
 │   ├── requirements.txt
-│   └── tests/           # pytest test suite (66+ tests)
+│   └── tests/           # pytest test suite (68+ tests)
 ├── frontend/
 │   ├── src/
 │   │   ├── views/       # Page components

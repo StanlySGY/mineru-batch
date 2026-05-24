@@ -161,7 +161,7 @@ make dev
 | `CONVERT_DIR` | `./converted` | 文档转换目录 |
 | `DATABASE_URL` | `sqlite:///./mineru_batch.db` | 数据库连接 URL（支持 SQLite 和 PostgreSQL） |
 | `ADMIN_API_KEY` | — | 管理接口访问密钥；设置后删除、重试、清理、保存配置等操作需认证 |
-| `ALLOW_PRIVATE_ENDPOINTS` | `false` | 是否允许 MinerU 节点使用私有/内网地址；Docker Compose 示例默认为 `true` |
+| `ALLOW_PRIVATE_ENDPOINTS` | `true` | 是否允许 MinerU 节点使用私有/内网地址；生产公网部署建议设为 `false` |
 | `TAG` | `v0.1.0` | Docker Compose 使用的镜像标签 |
 | `APP_PORT` | `8900` | Docker Compose 暴露端口 |
 | `TZ` | `Asia/Shanghai` | 容器时区 |
@@ -181,7 +181,7 @@ mineru-batch/
 │   │   ├── storage_service.py
 │   │   └── ...
 │   ├── requirements.txt
-│   └── tests/               # pytest 测试套件（66+ 测试）
+│   └── tests/               # pytest 测试套件（68+ 测试）
 ├── frontend/
 │   ├── src/
 │   │   ├── views/           # 页面组件（Dashboard、Upload、Tasks 等）
