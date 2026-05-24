@@ -5,6 +5,10 @@ const apiBase = import.meta.env.VITE_API_BASE_URL || '/api'
 const adminKeyStorage = 'admin_api_key'
 const http = axios.create({ baseURL: apiBase })
 
+function apiUrl(path: string) {
+  return `${apiBase.replace(/\/$/, '')}${path}`
+}
+
 function getStoredAdminKey() {
   return localStorage.getItem(adminKeyStorage) || ''
 }
@@ -348,11 +352,11 @@ export const api = {
   },
 
   downloadUrl(id: number) {
-    return `/api/tasks/${id}/download`
+    return apiUrl(`/tasks/${id}/download`)
   },
 
   batchDownloadUrl(ids: number[]) {
-    return `/api/tasks/batch/download?ids=${ids.join(',')}`
+    return apiUrl(`/tasks/batch/download?ids=${ids.join(',')}`)
   },
 
   async preview(id: number) {
