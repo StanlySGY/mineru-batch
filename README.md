@@ -81,10 +81,25 @@ make prod
 ### 方式二：Docker
 
 ```bash
-docker compose up -d
+cp .env.example .env
+# 按需修改 .env 中的 APP_PORT、ADMIN_API_KEY、ALLOW_PRIVATE_ENDPOINTS
+docker compose --env-file .env up -d
 ```
 
-数据持久化在 Docker volume `data` 中。
+数据持久化在 Docker volume `data` 中。生产部署建议设置 `ADMIN_API_KEY`，并仅在可信内网环境开启 `ALLOW_PRIVATE_ENDPOINTS=true`。
+
+### 离线部署
+
+```bash
+bash prepare-offline.sh
+# 将生成的 mineru-batch-offline-*.tar.gz 拷贝到目标机器后解压并执行 deploy.sh
+```
+
+离线升级可使用：
+
+```bash
+bash update-offline.sh mineru-batch-offline-vX.Y.Z.tar.gz
+```
 
 ### 方式三：开发模式 🔧
 
@@ -145,6 +160,12 @@ make dev
 | `OUTPUT_DIR` | `./outputs` | 输出文件目录 |
 | `CONVERT_DIR` | `./converted` | 文档转换目录 |
 | `DATABASE_URL` | `sqlite:///./mineru_batch.db` | 数据库连接 URL（支持 SQLite 和 PostgreSQL） |
+| `ADMIN_API_KEY` | — | 管理接口访问密钥；设置后删除、重试、清理、保存配置等操作需认证 |
+| `ALLOW_PRIVATE_ENDPOINTS` | `false` | 是否允许 MinerU 节点使用私有/内网地址；Docker Compose 示例默认为 `true` |
+| `TAG` | `v0.1.0` | Docker Compose 使用的镜像标签 |
+| `APP_PORT` | `8900` | Docker Compose 暴露端口 |
+| `TZ` | `Asia/Shanghai` | 容器时区 |
+| `VITE_API_BASE_URL` | `/api` | 前后端分离部署时的后端 API 地址 |
 
 ## 📁 目录结构
 
@@ -160,7 +181,7 @@ mineru-batch/
 │   │   ├── storage_service.py
 │   │   └── ...
 │   ├── requirements.txt
-│   └── tests/               # pytest 测试套件（64+ 测试）
+│   └── tests/               # pytest 测试套件（66+ 测试）
 ├── frontend/
 │   ├── src/
 │   │   ├── views/           # 页面组件（Dashboard、Upload、Tasks 等）
@@ -171,6 +192,9 @@ mineru-batch/
 │   └── vite.config.ts
 ├── docker-compose.yml
 ├── Dockerfile
+├── .env.example
+├── prepare-offline.sh
+├── update-offline.sh
 ├── Makefile
 └── start.sh
 ```
@@ -190,18 +214,35 @@ mineru-batch/
 |------|------|------|
 | `POST` | `/api/upload` | 上传文件并创建任务 |
 | `GET` | `/api/tasks` | 任务列表（分页、筛选） |
+| `GET` | `/api/tasks/events` | 任务状态 SSE 实时事件 |
+| `GET` | `/api/tasks/since` | 按时间同步断连期间的任务更新 |
 | `GET` | `/api/tasks/{id}` | 任务详情 |
+| `PUT` | `/api/tasks/{id}` | 更新任务解析参数 |
+| `DELETE` | `/api/tasks/{id}` | 删除任务 |
 | `POST` | `/api/tasks/{id}/retry` | 重试任务 |
 | `POST` | `/api/tasks/{id}/cancel` | 取消任务 |
-| `DELETE` | `/api/tasks/{id}` | 删除任务 |
-| `GET` | `/api/tasks/{id}/preview` | 预览结果 |
-| `GET` | `/api/tasks/{id}/download` | 下载结果 |
 | `POST` | `/api/tasks/{id}/convert` | 文档转 PDF |
+| `GET` | `/api/tasks/{id}/preview` | 预览结果 |
+| `PUT` | `/api/tasks/{id}/content` | 保存编辑后的结果内容 |
+| `GET` | `/api/tasks/{id}/download` | 下载结果 |
+| `DELETE` | `/api/tasks/batch` | 批量删除任务 |
+| `POST` | `/api/tasks/batch/retry` | 批量重试任务 |
+| `POST` | `/api/tasks/batch/convert` | 批量文档转 PDF |
+| `GET` | `/api/tasks/batch/download` | 批量下载结果 |
 | `GET` | `/api/stats` | 统计概览 |
 | `GET` | `/api/stats/trend` | 趋势数据 |
 | `GET` | `/api/stats/filetypes` | 文件类型分布 |
+| `GET` | `/api/reports/quality` | 质量报告 |
+| `GET` | `/api/settings` | 读取系统设置 |
+| `PUT` | `/api/settings` | 保存系统设置 |
+| `GET` | `/api/security/status` | 安全配置状态 |
+| `GET` | `/api/concurrency` | 读取并发数 |
+| `PUT` | `/api/concurrency` | 设置并发数 |
+| `POST` | `/api/test-connection` | 测试 MinerU 节点连接 |
 | `GET` | `/api/logs` | 日志列表 |
 | `GET` | `/api/logs/grouped` | 分组日志 |
+| `DELETE` | `/api/logs` | 清空日志 |
+| `GET` | `/api/logs/mineru-container` | MinerU 容器原始日志 |
 | `GET` | `/api/storage` | 存储占用 |
 | `POST` | `/api/storage/clean` | 清理指定目录 |
 | `POST` | `/api/storage/clean-sources` | 清理已完成任务原文件 |

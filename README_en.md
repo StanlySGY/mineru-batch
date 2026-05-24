@@ -83,10 +83,25 @@ Visit http://localhost:8900
 ### Option 2: Docker
 
 ```bash
-docker compose up -d
+cp .env.example .env
+# Adjust APP_PORT, ADMIN_API_KEY, ALLOW_PRIVATE_ENDPOINTS as needed
+docker compose --env-file .env up -d
 ```
 
-Data persisted in Docker volume `data`.
+Data persisted in Docker volume `data`. For production, set `ADMIN_API_KEY` and enable `ALLOW_PRIVATE_ENDPOINTS=true` only in trusted private networks.
+
+### Offline Deployment
+
+```bash
+bash prepare-offline.sh
+# Copy generated mineru-batch-offline-*.tar.gz to target machine, extract it, then run deploy.sh
+```
+
+Offline upgrade:
+
+```bash
+bash update-offline.sh mineru-batch-offline-vX.Y.Z.tar.gz
+```
 
 ### Option 3: Development Mode
 
@@ -140,6 +155,12 @@ Frontend and backend run separately with hot reload:
 | `OUTPUT_DIR` | `./outputs` | Output file directory |
 | `CONVERT_DIR` | `./converted` | Document conversion directory |
 | `DATABASE_URL` | `sqlite:///./mineru_batch.db` | Database connection URL |
+| `ADMIN_API_KEY` | — | Admin API key; required for delete, retry, cleanup, and settings updates when set |
+| `ALLOW_PRIVATE_ENDPOINTS` | `false` | Whether MinerU endpoints may use private/internal addresses; Docker Compose example defaults to `true` |
+| `TAG` | `v0.1.0` | Docker Compose image tag |
+| `APP_PORT` | `8900` | Docker Compose published port |
+| `TZ` | `Asia/Shanghai` | Container timezone |
+| `VITE_API_BASE_URL` | `/api` | Backend API base URL for split frontend/backend deployments |
 
 ## Directory Structure
 
@@ -150,7 +171,7 @@ mineru-batch/
 │   ├── routes.py        # API routes (upload, tasks, logs, stats)
 │   ├── models.py        # SQLAlchemy models
 │   ├── requirements.txt
-│   └── tests/           # pytest test suite
+│   └── tests/           # pytest test suite (66+ tests)
 ├── frontend/
 │   ├── src/
 │   │   ├── views/       # Page components
@@ -161,6 +182,9 @@ mineru-batch/
 │   └── vite.config.ts
 ├── docker-compose.yml
 ├── Dockerfile
+├── .env.example
+├── prepare-offline.sh
+├── update-offline.sh
 ├── Makefile
 └── start.sh
 ```
@@ -169,8 +193,8 @@ mineru-batch/
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | Vue 3 + TypeScript + Element Plus + ECharts |
-| Backend | FastAPI + SQLAlchemy + SQLite |
+| Frontend | Vue 3 + TypeScript + Element Plus + ECharts + Marked |
+| Backend | FastAPI + SQLAlchemy + SQLite / PostgreSQL |
 | Document Conversion | LibreOffice (headless) |
 | Deployment | Docker / Make / uvicorn |
 
@@ -180,16 +204,35 @@ mineru-batch/
 |--------|------|-------------|
 | `POST` | `/api/upload` | Upload files and create tasks |
 | `GET` | `/api/tasks` | Task list (paginated, filtered) |
+| `GET` | `/api/tasks/events` | Realtime task status SSE stream |
+| `GET` | `/api/tasks/since` | Sync task updates missed during disconnects |
 | `GET` | `/api/tasks/{id}` | Task details |
+| `PUT` | `/api/tasks/{id}` | Update task parse parameters |
+| `DELETE` | `/api/tasks/{id}` | Delete task |
 | `POST` | `/api/tasks/{id}/retry` | Retry task |
 | `POST` | `/api/tasks/{id}/cancel` | Cancel task |
-| `DELETE` | `/api/tasks/{id}` | Delete task |
+| `POST` | `/api/tasks/{id}/convert` | Convert document to PDF |
 | `GET` | `/api/tasks/{id}/preview` | Preview result |
+| `PUT` | `/api/tasks/{id}/content` | Save edited result content |
 | `GET` | `/api/tasks/{id}/download` | Download result |
+| `DELETE` | `/api/tasks/batch` | Batch delete tasks |
+| `POST` | `/api/tasks/batch/retry` | Batch retry tasks |
+| `POST` | `/api/tasks/batch/convert` | Batch convert documents to PDF |
+| `GET` | `/api/tasks/batch/download` | Batch download results |
 | `GET` | `/api/stats` | Statistics overview |
 | `GET` | `/api/stats/trend` | Trend data |
 | `GET` | `/api/stats/filetypes` | File type distribution |
+| `GET` | `/api/reports/quality` | Quality report |
+| `GET` | `/api/settings` | Read server settings |
+| `PUT` | `/api/settings` | Save server settings |
+| `GET` | `/api/security/status` | Security configuration status |
+| `GET` | `/api/concurrency` | Read worker concurrency |
+| `PUT` | `/api/concurrency` | Set worker concurrency |
+| `POST` | `/api/test-connection` | Test MinerU node connection |
 | `GET` | `/api/logs` | Log list |
+| `GET` | `/api/logs/grouped` | Grouped logs |
+| `DELETE` | `/api/logs` | Clear logs |
+| `GET` | `/api/logs/mineru-container` | Raw MinerU container logs |
 | `GET` | `/api/storage` | Storage usage |
 | `POST` | `/api/storage/clean` | Clean specified directory |
 | `POST` | `/api/storage/clean-sources` | Clean completed task source files |
