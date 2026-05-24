@@ -37,7 +37,7 @@ from services.task_service import (
     check_and_mark_cancelled,
 )
 from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
-from services.log_service import clear_logs_impl, get_grouped_logs_impl, list_logs_impl
+from services.log_service import clear_logs_impl, get_app_log_file, get_grouped_logs_impl, list_logs_impl
 from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
 from services.settings_service import (
     get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
@@ -879,7 +879,7 @@ async def get_mineru_container_logs(
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "Docker command timeout"}
     except FileNotFoundError:
-        log_file = Path("/app/app.log")
+        log_file = get_app_log_file()
         if log_file.exists():
             try:
                 async with aiofiles.open(log_file, "r") as f:

@@ -2,6 +2,8 @@ from routes import (
     _sanitize_filename, _is_doc_file, _build_mineru_form, _pick_endpoint, _extract_md_from_result,
 )
 from models import FileTask, OutputFormat, TaskStatus
+from services import log_service
+from services.log_service import get_app_log_file
 
 
 class TestSanitizeFilename:
@@ -83,3 +85,16 @@ class TestExtractMdFromResult:
 
     def test_empty(self):
         assert _extract_md_from_result({}, "x.pdf") == ""
+
+
+class TestAppLogFile:
+    def test_uses_env_override(self, tmp_path, monkeypatch):
+        log_file = tmp_path / "custom.log"
+        monkeypatch.setenv("APP_LOG_FILE", str(log_file))
+        assert get_app_log_file() == log_file
+
+    def test_falls_back_when_default_parent_unavailable(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("APP_LOG_FILE", raising=False)
+        monkeypatch.setattr(log_service, "PROJECT_DIR", tmp_path)
+        monkeypatch.setattr(log_service.os, "access", lambda _path, _mode: False)
+        assert get_app_log_file() == tmp_path / "app.log"

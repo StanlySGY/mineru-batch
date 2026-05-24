@@ -1,6 +1,22 @@
 """Log service — business logic for log operations."""
+import os
+from pathlib import Path
+
 from sqlalchemy.orm import Session
 from models import ProcessLog, FileTask, ProcessLog as ProcessLogModel
+
+
+PROJECT_DIR = Path(__file__).resolve().parents[2]
+
+
+def get_app_log_file(create_parent: bool = False) -> Path:
+    configured = os.environ.get("APP_LOG_FILE", "").strip()
+    log_file = Path(configured).expanduser() if configured else Path("/app/app.log")
+    if not configured and (not log_file.parent.exists() or not os.access(log_file.parent, os.W_OK)):
+        log_file = PROJECT_DIR / "app.log"
+    if create_parent:
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+    return log_file
 
 
 def list_logs_impl(

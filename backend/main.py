@@ -17,6 +17,7 @@ from limiter import limiter
 
 from models import init_db, SessionLocal, FileTask, TaskStatus
 from routes import router, _notify_task_change, add_log, _enqueue_task, start_workers
+from services.log_service import get_app_log_file
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -53,7 +54,7 @@ def _ensure_frontend():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    log_file = Path("/app/app.log")
+    log_file = get_app_log_file(create_parent=True)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
