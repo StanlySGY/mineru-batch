@@ -127,6 +127,30 @@ class TestConcurrency:
         resp = client.get("/api/concurrency")
         assert resp.json()["concurrency"] == 5
 
+    def test_queue_status(self, client, db_session):
+        pending = FileTask(
+            original_filename="wait.pdf", saved_filename="wait.pdf",
+            file_path="/tmp/wait.pdf", file_size=100,
+            status=TaskStatus.PENDING, output_format=OutputFormat.MD,
+            priority=2,
+        )
+        processing = FileTask(
+            original_filename="run.pdf", saved_filename="run.pdf",
+            file_path="/tmp/run.pdf", file_size=100,
+            status=TaskStatus.PROCESSING, output_format=OutputFormat.MD,
+        )
+        db_session.add_all([pending, processing])
+        db_session.commit()
+
+        resp = client.get("/api/queue/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["concurrency"] == 5
+        assert data["pending"] == 1
+        assert data["processing"] == 1
+        assert data["available_slots"] == 4
+        assert data["waiting_tasks"][0]["filename"] == "wait.pdf"
+
     def test_set_valid(self, client):
         resp = client.put("/api/concurrency", json={"concurrency": 3})
         assert resp.json()["concurrency"] == 3

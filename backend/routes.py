@@ -52,6 +52,7 @@ from services.document_service import convert_doc_to_pdf_impl
 from services.storage_stats_service import get_storage_stats_impl
 from services.concurrency_service import get_concurrency_impl, validate_concurrency
 from services.events_service import stream_task_events_impl
+from services.queue_service import get_queue_status_impl
 
 router = APIRouter()
 
@@ -579,6 +580,11 @@ async def _process_task(task_id: int):
 @router.get("/concurrency")
 async def get_concurrency():
     return get_concurrency_impl(_max_concurrency)
+
+
+@router.get("/queue/status")
+async def get_queue_status(db: Session = Depends(get_db)):
+    return get_queue_status_impl(db, _max_concurrency, _task_queue.qsize())
 
 
 @router.put("/concurrency")

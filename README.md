@@ -236,6 +236,7 @@ mineru-batch/
 | `GET` | `/api/settings` | 读取系统设置 |
 | `PUT` | `/api/settings` | 保存系统设置 |
 | `GET` | `/api/security/status` | 安全配置状态 |
+| `GET` | `/api/queue/status` | 任务队列状态 |
 | `GET` | `/api/concurrency` | 读取并发数 |
 | `PUT` | `/api/concurrency` | 设置并发数 |
 | `POST` | `/api/test-connection` | 测试 MinerU 节点连接 |

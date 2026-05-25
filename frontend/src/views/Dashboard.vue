@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { api, type TaskItem, type QualityReport } from '../api'
+import { api, type TaskItem, type QualityReport, type QueueStatus } from '../api'
 import { formatTime } from '../utils/format'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
@@ -18,6 +18,7 @@ const loading = ref(false)
 const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
 const qualityReport = ref<QualityReport | null>(null)
+const queueStatus = ref<QueueStatus | null>(null)
 const showWelcome = ref(false)
 function dismissWelcome() {
   showWelcome.value = false
@@ -65,19 +66,26 @@ const storageDisplay = computed(() => {
   return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB'
 })
 
+const queueLoadRate = computed(() => {
+  if (!queueStatus.value?.concurrency) return 0
+  return Math.min(100, Math.round((queueStatus.value.processing / queueStatus.value.concurrency) * 100))
+})
+
 async function loadStats() {
   loading.value = true
   try {
-    const [statsRes, recentRes, storRes, qualityRes] = await Promise.all([
+    const [statsRes, recentRes, storRes, qualityRes, queueRes] = await Promise.all([
       api.getStats(),
       api.listTasks({ page: 1, size: 5 }),
       api.getStorage().catch(() => null),
       api.getQualityReport().catch(() => null),
+      api.getQueueStatus().catch(() => null),
     ])
     stats.value = statsRes
     recentTasks.value = recentRes.items
     if (storRes) storageInfo.value = storRes
     if (qualityRes) qualityReport.value = qualityRes
+    if (queueRes) queueStatus.value = queueRes
   } catch (e) {
     console.error('[Dashboard] loadStats failed:', e)
   } finally {
@@ -280,6 +288,35 @@ onUnmounted(() => {
     </div>
 
     <div class="right-col">
+      <el-card shadow="never" class="queue-card">
+        <template #header>
+          <span class="card-title">队列状态</span>
+        </template>
+        <div v-if="queueStatus" class="queue-panel">
+          <div class="queue-meter">
+            <el-progress type="dashboard" :percentage="queueLoadRate" :width="104">
+              <template #default>
+                <div class="queue-percent">{{ queueLoadRate }}%</div>
+                <div class="queue-caption">并发占用</div>
+              </template>
+            </el-progress>
+            <div class="queue-metrics">
+              <div><span>并发上限</span><strong>{{ queueStatus.concurrency }}</strong></div>
+              <div><span>运行中</span><strong>{{ queueStatus.processing }}</strong></div>
+              <div><span>等待中</span><strong>{{ queueStatus.pending }}</strong></div>
+              <div><span>可用槽位</span><strong>{{ queueStatus.available_slots }}</strong></div>
+            </div>
+          </div>
+          <div class="waiting-list" v-if="queueStatus.waiting_tasks.length">
+            <div v-for="item in queueStatus.waiting_tasks" :key="item.id" class="waiting-item" @click="router.push('/tasks?status=pending')">
+              <span>{{ item.filename }}</span>
+              <small>#{{ item.id }} · 优先级 {{ item.priority }}</small>
+            </div>
+          </div>
+          <el-empty v-else description="暂无等待任务" :image-size="48" />
+        </div>
+      </el-card>
+
       <el-card shadow="never" class="trend-card">
         <template #header>
           <span class="card-title">近 7 天趋势</span>
@@ -370,6 +407,19 @@ onUnmounted(() => {
 .failure-item { padding: 8px 10px; background: #fef0f0; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
 .failure-item span { font-size: 13px; color: #303133; }
 .failure-item small { color: #f56c6c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-card { border-radius: 12px; }
+.queue-panel { display: flex; flex-direction: column; gap: 14px; }
+.queue-meter { display: flex; gap: 16px; align-items: center; }
+.queue-percent { font-size: 20px; font-weight: 700; color: #303133; line-height: 1; }
+.queue-caption { font-size: 12px; color: #909399; margin-top: 4px; }
+.queue-metrics { flex: 1; display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+.queue-metrics div { padding: 10px; background: #f7f8fa; border-radius: 8px; display: flex; flex-direction: column; gap: 4px; }
+.queue-metrics span { font-size: 12px; color: #909399; }
+.queue-metrics strong { font-size: 18px; color: #303133; }
+.waiting-list { display: flex; flex-direction: column; gap: 8px; }
+.waiting-item { padding: 8px 10px; background: #f4f8ff; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
+.waiting-item span { font-size: 13px; color: #303133; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.waiting-item small { color: #409eff; }
 .trend-card { border-radius: 12px; }
 .trend-chart { height: 200px; }
 .pie-card { border-radius: 12px; }

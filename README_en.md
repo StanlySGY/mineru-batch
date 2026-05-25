@@ -226,6 +226,7 @@ mineru-batch/
 | `GET` | `/api/settings` | Read server settings |
 | `PUT` | `/api/settings` | Save server settings |
 | `GET` | `/api/security/status` | Security configuration status |
+| `GET` | `/api/queue/status` | Task queue status |
 | `GET` | `/api/concurrency` | Read worker concurrency |
 | `PUT` | `/api/concurrency` | Set worker concurrency |
 | `POST` | `/api/test-connection` | Test MinerU node connection |

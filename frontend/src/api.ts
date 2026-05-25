@@ -169,6 +169,15 @@ export interface QualityReport {
   recent_failures: { id: number; filename: string; error_message: string | null; created_at: string | null; completed_at: string | null }[]
 }
 
+export interface QueueStatus {
+  concurrency: number
+  queue_size: number
+  pending: number
+  processing: number
+  available_slots: number
+  waiting_tasks: { id: number; filename: string; priority: number; created_at: string | null }[]
+}
+
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
@@ -235,6 +244,11 @@ export const api = {
   async getQualityReport() {
     const { data } = await http.get('/reports/quality')
     return data as QualityReport
+  },
+
+  async getQueueStatus() {
+    const { data } = await http.get('/queue/status')
+    return data as QueueStatus
   },
 
   async getConcurrency() {
