@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, shallowRef } from 'vue'
 import { Clock, Loading, SuccessFilled, CircleClose, Files, UploadFilled } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import { api, type TaskItem, type QualityReport, type QueueStatus } from '../api'
+import { api, type TaskItem, type QualityReport, type QueueStatus, type FailureCategories, type BatchProgressReport, type NodeHealthReport } from '../api'
 import { formatTime } from '../utils/format'
 import * as echarts from 'echarts/core'
 import { BarChart, PieChart } from 'echarts/charts'
@@ -19,6 +19,9 @@ const firstLoad = ref(true)
 const storageInfo = ref<{ total: number } | null>(null)
 const qualityReport = ref<QualityReport | null>(null)
 const queueStatus = ref<QueueStatus | null>(null)
+const failureCategories = ref<FailureCategories | null>(null)
+const batchProgress = ref<BatchProgressReport | null>(null)
+const nodeHealth = ref<NodeHealthReport | null>(null)
 const showWelcome = ref(false)
 function dismissWelcome() {
   showWelcome.value = false
@@ -71,21 +74,31 @@ const queueLoadRate = computed(() => {
   return Math.min(100, Math.round((queueStatus.value.processing / queueStatus.value.concurrency) * 100))
 })
 
+const failureLabel: Record<string, string> = {
+  timeout: '超时', network: '网络', conversion: '转换', mineru_api: 'MinerU API', other: '其他',
+}
+
 async function loadStats() {
   loading.value = true
   try {
-    const [statsRes, recentRes, storRes, qualityRes, queueRes] = await Promise.all([
+    const [statsRes, recentRes, storRes, qualityRes, queueRes, failuresRes, batchesRes, healthRes] = await Promise.all([
       api.getStats(),
       api.listTasks({ page: 1, size: 5 }),
       api.getStorage().catch(() => null),
       api.getQualityReport().catch(() => null),
       api.getQueueStatus().catch(() => null),
+      api.getFailureCategories().catch(() => null),
+      api.getBatchProgress().catch(() => null),
+      api.getNodeHealth().catch(() => null),
     ])
     stats.value = statsRes
     recentTasks.value = recentRes.items
     if (storRes) storageInfo.value = storRes
     if (qualityRes) qualityReport.value = qualityRes
     if (queueRes) queueStatus.value = queueRes
+    if (failuresRes) failureCategories.value = failuresRes
+    if (batchesRes) batchProgress.value = batchesRes
+    if (healthRes) nodeHealth.value = healthRes
   } catch (e) {
     console.error('[Dashboard] loadStats failed:', e)
   } finally {
@@ -258,10 +271,29 @@ onUnmounted(() => {
           <div class="quality-item"><span>处理中</span><strong>{{ qualityReport.processing }}</strong></div>
           <div class="quality-item"><span>平均耗时</span><strong>{{ avgDuration }}</strong></div>
         </div>
+        <div class="insight-list" v-if="failureCategories?.items.length">
+          <div v-for="item in failureCategories.items" :key="item.category" class="insight-item danger">
+            <span>{{ failureLabel[item.category] || item.category }}</span>
+            <strong>{{ item.count }}</strong>
+          </div>
+        </div>
         <div v-if="qualityReport?.recent_failures.length" class="failure-list">
           <div v-for="item in qualityReport.recent_failures" :key="item.id" class="failure-item" @click="router.push('/tasks?status=failed')">
             <span>{{ item.filename }}</span>
             <small>{{ item.error_message || '解析失败' }}</small>
+          </div>
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="recent-card" v-if="batchProgress?.items.length">
+        <template #header>
+          <span class="card-title">批次进度</span>
+        </template>
+        <div class="batch-list">
+          <div v-for="batch in batchProgress.items.slice(0, 4)" :key="batch.batch_id" class="batch-item" @click="router.push(`/tasks?batch_id=${batch.batch_id}`)">
+            <div class="batch-title"><span>{{ batch.batch_name || batch.batch_id }}</span><strong>{{ batch.progress }}%</strong></div>
+            <el-progress :percentage="batch.progress" :stroke-width="8" />
+            <small>共 {{ batch.total }} · 完成 {{ batch.completed }} · 失败 {{ batch.failed }}</small>
           </div>
         </div>
       </el-card>
@@ -314,6 +346,19 @@ onUnmounted(() => {
             </div>
           </div>
           <el-empty v-else description="暂无等待任务" :image-size="48" />
+        </div>
+      </el-card>
+
+      <el-card shadow="never" class="trend-card">
+        <template #header>
+          <span class="card-title">节点健康</span>
+        </template>
+        <div v-if="nodeHealth" class="health-list">
+          <div v-for="node in nodeHealth.nodes.slice(0, 4)" :key="node.index" class="health-item">
+            <span class="health-dot" :class="node.status"></span>
+            <span>{{ node.url }}</span>
+            <strong>{{ node.ok ? `${node.latency_ms}ms` : node.status }}</strong>
+          </div>
         </div>
       </el-card>
 
@@ -407,6 +452,23 @@ onUnmounted(() => {
 .failure-item { padding: 8px 10px; background: #fef0f0; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; }
 .failure-item span { font-size: 13px; color: #303133; }
 .failure-item small { color: #f56c6c; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insight-list { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+.insight-item { padding: 8px 10px; border-radius: 8px; display: flex; gap: 8px; align-items: center; background: #f7f8fa; }
+.insight-item span { font-size: 12px; color: #606266; }
+.insight-item strong { color: #303133; }
+.insight-item.danger { background: #fef0f0; }
+.batch-list { display: flex; flex-direction: column; gap: 12px; }
+.batch-item { padding: 10px; background: #f7f8fa; border-radius: 8px; cursor: pointer; }
+.batch-title { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+.batch-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-item small { color: #909399; }
+.health-list { display: flex; flex-direction: column; gap: 8px; }
+.health-item { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
+.health-item span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.health-dot { width: 8px; height: 8px; border-radius: 50%; background: #909399; }
+.health-dot.green { background: #67c23a; }
+.health-dot.yellow { background: #e6a23c; }
+.health-dot.red { background: #f56c6c; }
 .queue-card { border-radius: 12px; }
 .queue-panel { display: flex; flex-direction: column; gap: 14px; }
 .queue-meter { display: flex; gap: 16px; align-items: center; }

@@ -41,8 +41,9 @@ from services.log_service import clear_logs_impl, get_app_log_file, get_grouped_
 from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
 from services.settings_service import (
     get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
+    export_settings_payload, import_settings_payload,
 )
-from services.report_service import get_stats_impl, get_quality_report_impl
+from services.report_service import get_stats_impl, get_quality_report_impl, get_failure_categories_impl
 from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
 from services.batch_service import batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl, batch_download_tasks_impl
 from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
@@ -53,6 +54,10 @@ from services.storage_stats_service import get_storage_stats_impl
 from services.concurrency_service import get_concurrency_impl, validate_concurrency
 from services.events_service import stream_task_events_impl
 from services.queue_service import get_queue_status_impl
+from services.node_health_service import check_node_health_impl
+from services.audit_service import audit_admin_action
+from services.rag_quality_service import get_quality_score_impl
+from services.batch_report_service import get_batch_progress_impl
 
 router = APIRouter()
 
@@ -211,6 +216,21 @@ def stop_workers():
     for w in _workers:
         w.cancel()
     _workers = []
+
+
+def _read_output_text(path: str) -> str:
+    safe = _safe_path(path)
+    target = safe
+    if os.path.isdir(safe):
+        for root, _, files in os.walk(safe):
+            for fn in files:
+                if fn.endswith((".md", ".txt", ".html")):
+                    target = os.path.join(root, fn)
+                    break
+            if target != safe:
+                break
+    with open(target, "r", encoding="utf-8", errors="ignore") as f:
+        return f.read()
 
 
 # SSE 事件总线
@@ -591,7 +611,13 @@ async def get_queue_status(db: Session = Depends(get_db)):
 async def set_concurrency_endpoint(body: dict, _: None = Depends(require_admin)):
     n = validate_concurrency(body.get("concurrency", 5))
     set_concurrency(n)
+    audit_admin_action("设置并发数", f"concurrency={n}")
     return get_concurrency_impl(_max_concurrency)
+
+
+@router.get("/nodes/health")
+async def get_nodes_health(db: Session = Depends(get_db)):
+    return await check_node_health_impl(get_settings_from_db(db), _validate_external_url, ALLOW_PRIVATE_ENDPOINTS)
 
 
 @router.post("/test-connection")
@@ -613,6 +639,20 @@ async def get_settings(db: Session = Depends(get_db)):
 async def update_settings(body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     current = get_settings_from_db(db)
     saved = save_settings(db, validate_settings_payload(body or {}, current))
+    audit_admin_action("保存系统设置")
+    return sanitize_settings(saved)
+
+
+@router.get("/settings/export")
+async def export_settings(db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    audit_admin_action("导出系统设置")
+    return export_settings_payload(db)
+
+
+@router.post("/settings/import")
+async def import_settings(body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    saved = import_settings_payload(db, body or {})
+    audit_admin_action("导入系统设置")
     return sanitize_settings(saved)
 
 
@@ -625,6 +665,16 @@ async def get_stats(db: Session = Depends(get_db)):
 async def get_quality_report(db: Session = Depends(get_db)):
     stats = get_stats_impl(db)
     return get_quality_report_impl(db, stats)
+
+
+@router.get("/reports/failures")
+async def get_failure_categories(db: Session = Depends(get_db)):
+    return get_failure_categories_impl(db)
+
+
+@router.get("/reports/batches")
+async def get_batch_progress(db: Session = Depends(get_db)):
+    return get_batch_progress_impl(db)
 
 
 @router.get("/tasks/events")
@@ -735,12 +785,16 @@ async def list_tasks(
 
 @router.delete("/tasks/batch")
 async def batch_delete_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    return await batch_delete_tasks_impl(db, ids, _safe_remove)
+    result = await batch_delete_tasks_impl(db, ids, _safe_remove)
+    audit_admin_action("批量删除任务", f"ids={ids}")
+    return result
 
 
 @router.post("/tasks/batch/retry")
 async def batch_retry_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    return await batch_retry_tasks_impl(db, ids, _safe_remove, _enqueue_task)
+    result = await batch_retry_tasks_impl(db, ids, _safe_remove, _enqueue_task)
+    audit_admin_action("批量重试任务", f"ids={ids}")
+    return result
 
 
 @router.post("/tasks/batch/convert")
@@ -765,7 +819,9 @@ async def get_task(task_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/tasks/{task_id}")
 async def delete_task(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    return await delete_task_impl(db, task_id, _safe_remove)
+    result = await delete_task_impl(db, task_id, _safe_remove)
+    audit_admin_action("删除任务", f"task_id={task_id}")
+    return result
 
 
 @router.put("/tasks/{task_id}")
@@ -808,9 +864,16 @@ async def preview_result(task_id: int, db: Session = Depends(get_db)):
     return await preview_result_impl(db, task_id, _safe_path)
 
 
+@router.get("/tasks/{task_id}/quality")
+async def task_quality(task_id: int, db: Session = Depends(get_db)):
+    return get_quality_score_impl(db, task_id, _read_output_text)
+
+
 @router.put("/tasks/{task_id}/content")
 async def update_task_content(task_id: int, body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    return await update_task_content_impl(db, task_id, body, _safe_path)
+    result = await update_task_content_impl(db, task_id, body, _safe_path)
+    audit_admin_action("编辑任务内容", f"task_id={task_id}")
+    return result
 
 
 @router.get("/tasks/{task_id}/download")
@@ -856,6 +919,7 @@ async def list_logs_grouped(
 @router.delete("/logs")
 async def clear_logs(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     count = clear_logs_impl(db)
+    audit_admin_action("清空日志", f"count={count}")
     return {"detail": "cleared", "count": count}
 
 
@@ -915,12 +979,14 @@ async def get_storage_stats():
 async def clean_storage(body: dict = None, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     targets = (body or {}).get("targets", [])
     cleaned = await clean_storage_impl(targets, OUTPUT_DIR, CONVERT_DIR, db)
+    audit_admin_action("清理存储", f"targets={targets}")
     return {"detail": "cleaned", "counts": cleaned}
 
 
 @router.post("/storage/clean-sources")
 async def clean_completed_sources(db: Session = Depends(get_db), _: None = Depends(require_admin)):
     result = await clean_completed_sources_impl(db)
+    audit_admin_action("清理已完成任务原文件", f"count={result.get('count', 0)}")
     return {"detail": "cleaned", **result}
 
 

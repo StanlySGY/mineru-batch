@@ -54,3 +54,16 @@ class TestSettings:
         with patch("services.settings_service.ALLOW_PRIVATE_ENDPOINTS", True):
             resp = client.put("/api/settings", json=_settings_payload())
         assert resp.status_code == 200
+
+    def test_export_import_settings(self, client):
+        client.put("/api/settings", json=_settings_payload("secret-2"))
+        exported = client.get("/api/settings/export")
+        assert exported.status_code == 200
+        assert exported.json()["mineruEndpoints"][0]["hasApiKey"] is True
+        assert "apiKey" not in exported.json()["mineruEndpoints"][0]
+
+        payload = _settings_payload("")
+        payload["defaults"]["timeout"] = 1200
+        imported = client.post("/api/settings/import", json=payload)
+        assert imported.status_code == 200
+        assert imported.json()["defaults"]["timeout"] == 1200

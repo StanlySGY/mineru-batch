@@ -178,6 +178,22 @@ export interface QueueStatus {
   waiting_tasks: { id: number; filename: string; priority: number; created_at: string | null }[]
 }
 
+export interface FailureCategories {
+  total: number
+  items: { category: string; count: number }[]
+}
+
+export interface BatchProgressReport {
+  total: number
+  items: { batch_id: string; batch_name: string | null; total: number; pending: number; processing: number; completed: number; failed: number; progress: number; latest_at: string | null }[]
+}
+
+export interface NodeHealthReport {
+  total: number
+  healthy: number
+  nodes: { index: number; url: string; enabled: boolean; ok: boolean; latency_ms: number | null; status: string; error?: string }[]
+}
+
 export async function requestNotificationPermission(): Promise<boolean> {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
@@ -249,6 +265,31 @@ export const api = {
   async getQueueStatus() {
     const { data } = await http.get('/queue/status')
     return data as QueueStatus
+  },
+
+  async getFailureCategories() {
+    const { data } = await http.get('/reports/failures')
+    return data as FailureCategories
+  },
+
+  async getBatchProgress() {
+    const { data } = await http.get('/reports/batches')
+    return data as BatchProgressReport
+  },
+
+  async getNodeHealth() {
+    const { data } = await http.get('/nodes/health')
+    return data as NodeHealthReport
+  },
+
+  async exportSettings() {
+    const { data } = await http.get('/settings/export')
+    return data as ServerSettings
+  },
+
+  async importSettings(settings: ServerSettings) {
+    const { data } = await http.post('/settings/import', settings)
+    return data as ServerSettings
   },
 
   async getConcurrency() {

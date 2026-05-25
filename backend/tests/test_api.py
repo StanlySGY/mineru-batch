@@ -179,6 +179,26 @@ class TestStatsAndLogs:
         resp = client.delete("/api/logs")
         assert resp.status_code == 200
 
+    def test_failure_categories(self, client, db_session):
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, error_message="timeout"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, error_message="connection refused"),
+        ])
+        db_session.commit()
+        data = client.get("/api/reports/failures").json()
+        assert data["total"] == 2
+        assert {item["category"] for item in data["items"]} == {"timeout", "network"}
+
+    def test_batch_progress_report(self, client, db_session):
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, batch_id="b1", batch_name="批次1"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, batch_id="b1", batch_name="批次1"),
+        ])
+        db_session.commit()
+        data = client.get("/api/reports/batches").json()
+        assert data["total"] == 1
+        assert data["items"][0]["progress"] == 50.0
+
 
 class TestBatchOperations:
     def test_batch_delete(self, client, sample_task, db_session):
@@ -223,6 +243,17 @@ class TestPreviewDownload:
     def test_preview_pending_400(self, client, sample_task):
         resp = client.get(f"/api/tasks/{sample_task.id}/preview")
         assert resp.status_code == 400
+
+    def test_quality_score_completed(self, client, sample_task, db_session, tmp_dirs):
+        out_path = os.path.join(tmp_dirs["output"], "quality.md")
+        with open(out_path, "w") as f:
+            f.write("# Title\n\n" + "content " * 100)
+        sample_task.status = TaskStatus.COMPLETED
+        sample_task.output_path = out_path
+        db_session.commit()
+        resp = client.get(f"/api/tasks/{sample_task.id}/quality")
+        assert resp.status_code == 200
+        assert resp.json()["score"] > 0
 
     def test_download_completed(self, client, sample_task, db_session, tmp_dirs):
         out_path = os.path.join(tmp_dirs["output"], "test.md")

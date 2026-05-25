@@ -167,6 +167,17 @@ def validate_settings_payload(payload: dict, current: dict | None = None) -> dic
     return {"defaults": defaults, "mineruEndpoints": endpoints}
 
 
+def export_settings_payload(db: Session) -> dict:
+    """Export sanitized settings."""
+    return sanitize_settings(get_settings_from_db(db))
+
+
+def import_settings_payload(db: Session, payload: dict) -> dict:
+    """Validate and save imported settings."""
+    current = get_settings_from_db(db)
+    return save_settings(db, validate_settings_payload(payload or {}, current))
+
+
 def save_settings(db: Session, data: dict) -> dict:
     """Save settings to database."""
     row = db.query(AppSetting).filter(AppSetting.key == SETTINGS_KEY).first()

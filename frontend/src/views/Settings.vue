@@ -166,21 +166,15 @@ function handleReset() {
   saveServerSettings(false).then(() => ElMessage.success('已恢复默认配置'))
 }
 
-function handleExportConfig() {
-  const config: Record<string, unknown> = {}
-  const keys = ['backend', 'mineruApi', 'serverUrl', 'outputFormat', 'parseMethod', 'langList',
-    'formulaEnable', 'tableEnable', 'returnMd', 'returnMiddleJson', 'returnModelOutput',
-    'returnContentList', 'returnImages', 'responseFormatZip', 'replaceImageUrl',
-    'startPageId', 'endPageId', 'timeout', 'autoConvert'] as const
-  for (const k of keys) config[k] = (cfg as any).state?.[k]
-  config['mineruEndpoints'] = cfg.mineruEndpoints.value
+async function handleExportConfig() {
+  const config = await api.exportSettings()
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
   const a = document.createElement('a')
   a.href = URL.createObjectURL(blob)
   a.download = 'mineru-batch-config.json'
   a.click()
   URL.revokeObjectURL(a.href)
-  ElMessage.success('配置已导出')
+  ElMessage.success('服务端配置已导出（敏感信息已脱敏）')
 }
 
 function handleImportConfig() {
@@ -193,26 +187,9 @@ function handleImportConfig() {
     try {
       const text = await file.text()
       const config = JSON.parse(text)
-      const map: Record<string, string> = {
-        backend: 'cfg_backend', mineruApi: 'cfg_mineru_api', serverUrl: 'cfg_server_url',
-        outputFormat: 'cfg_output_format', parseMethod: 'cfg_parse_method', langList: 'cfg_lang_list',
-        formulaEnable: 'cfg_formula_enable', tableEnable: 'cfg_table_enable',
-        returnMd: 'cfg_return_md', returnMiddleJson: 'cfg_return_middle_json',
-        returnModelOutput: 'cfg_return_model_output', returnContentList: 'cfg_return_content_list',
-        returnImages: 'cfg_return_images', responseFormatZip: 'cfg_response_format_zip',
-        replaceImageUrl: 'cfg_replace_image_url', startPageId: 'cfg_start_page_id',
-        endPageId: 'cfg_end_page_id', timeout: 'cfg_timeout', autoConvert: 'cfg_auto_convert',
-      }
-      for (const [k, lsKey] of Object.entries(map)) {
-        if (config[k] !== undefined) {
-          localStorage.setItem(lsKey, String(config[k]))
-        }
-      }
-      if (Array.isArray(config.mineruEndpoints)) {
-        localStorage.setItem('cfg_mineru_endpoints', JSON.stringify(config.mineruEndpoints))
-      }
-      await loadServerSettings()
-      await saveServerSettings(false)
+      const saved = await api.importSettings(config)
+      cfg.applyServerSettings(saved as any)
+      ElMessage.success('配置已导入服务端')
       window.location.reload()
     } catch {
       ElMessage.error('导入失败：无效的配置文件')

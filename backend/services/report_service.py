@@ -4,6 +4,31 @@ from sqlalchemy import func
 from models import FileTask, TaskStatus
 
 
+def classify_failure_reason(message: str | None) -> str:
+    text = (message or "").lower()
+    if any(k in text for k in ("timeout", "timed out", "超时")):
+        return "timeout"
+    if any(k in text for k in ("connect", "connection", "network", "连接")):
+        return "network"
+    if any(k in text for k in ("convert", "libreoffice", "转换")):
+        return "conversion"
+    if any(k in text for k in ("mineru", "file_parse", "api")):
+        return "mineru_api"
+    return "other"
+
+
+def get_failure_categories_impl(db: Session) -> dict:
+    failed = db.query(FileTask.error_message).filter(FileTask.status == TaskStatus.FAILED).all()
+    counts: dict[str, int] = {}
+    for (message,) in failed:
+        category = classify_failure_reason(message)
+        counts[category] = counts.get(category, 0) + 1
+    return {
+        "total": sum(counts.values()),
+        "items": [{"category": key, "count": value} for key, value in sorted(counts.items(), key=lambda item: item[1], reverse=True)],
+    }
+
+
 def get_stats_impl(db: Session) -> dict:
     """Get overall task statistics."""
     total = db.query(func.count(FileTask.id)).scalar()
