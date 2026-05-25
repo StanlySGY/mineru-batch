@@ -414,6 +414,10 @@ export const api = {
     return apiUrl(`/tasks/batch/download?ids=${ids.join(',')}`)
   },
 
+  batchMarkdownDownloadUrl(ids: number[], maxPartMb = 45) {
+    return apiUrl(`/tasks/batch/download-markdown?ids=${encodeURIComponent(ids.join(','))}&max_part_mb=${maxPartMb}`)
+  },
+
   async preview(id: number) {
     const { data } = await http.get(`/tasks/${id}/preview`)
     return data as { content: string; filename: string; format: string }

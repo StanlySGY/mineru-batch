@@ -21,6 +21,7 @@
 - 📁 **文件夹拖拽** — 直接拖拽文件夹到上传区域，自动识别并保留目录结构
 - ⚖️ **多节点负载均衡** — 配置多个 MinerU 服务节点，轮询分配任务，充分利用计算资源
 - 📦 **RAG Bundle 输出** — 支持保存 images / json / md 完整产物，适配 RAG 知识库搭建
+- 🧩 **easy-dataset 导出** — 一键导出 Markdown-only ZIP，自动过滤大体积中间产物并按 50MB 限制拆分
 - 🔄 **实时状态推送** — SSE 实时推送任务状态，支持浏览器桌面通知
 - 📝 **Markdown 预览** — 内置渲染预览，支持源码切换、全文搜索高亮、双栏对照
 - 🎛️ **任务管理** — 批量重试 / 删除 / 转换 / 下载，CSV 导出，一键套用任务参数
@@ -125,7 +126,7 @@ make dev
 - 📤 拖拽或点击上传，支持批量，可直接拖拽文件夹自动识别
 - 🔍 自动检测文档格式（Word/PPT/Excel），可选自动转 PDF
 - ⏱️ 上传进度实时显示（速度 + 预计剩余时间）
-- 🎨 解析场景选择：学术论文 / 纯文本 / 扫描件 OCR 一键切换，自动覆盖解析参数
+- 🎨 解析场景选择：easy-dataset / 学术论文 / 纯文本 / 扫描件 OCR 一键切换，自动覆盖解析参数
 - 🎯 每批上传可独立勾选要使用的 MinerU 节点，默认全选已启用的节点
 
 ### 🎛️ 任务管理
@@ -229,6 +230,7 @@ mineru-batch/
 | `POST` | `/api/tasks/batch/retry` | 批量重试任务 |
 | `POST` | `/api/tasks/batch/convert` | 批量文档转 PDF |
 | `GET` | `/api/tasks/batch/download` | 批量下载结果 |
+| `GET` | `/api/tasks/batch/download-markdown` | 导出 easy-dataset Markdown-only ZIP |
 | `GET` | `/api/stats` | 统计概览 |
 | `GET` | `/api/stats/trend` | 趋势数据 |
 | `GET` | `/api/stats/filetypes` | 文件类型分布 |
@@ -249,6 +251,34 @@ mineru-batch/
 | `POST` | `/api/storage/clean-sources` | 清理已完成任务原文件 |
 
 **完整 API 文档：** http://localhost:8900/docs
+
+## 🧩 easy-dataset 批量导入工作流
+
+MinerU Batch 可作为 easy-dataset 的前置 PDF→Markdown 预处理工具，适合批量处理大 PDF、文件夹文档和混合办公文档。
+
+### 推荐流程
+
+```bash
+# 1. 启动 MinerU Batch
+make prod
+
+# 2. 在上传页选择 easy-dataset 解析场景
+# 该预设默认输出轻量 Markdown，并关闭图片、中间 JSON、模型输出等大体积产物
+
+# 3. 拖拽 PDF 文件夹上传
+# 系统会保留相对目录结构
+
+# 4. 任务完成后，在任务列表勾选任务并点击“easy-dataset 包”
+# 下载 Markdown-only ZIP，用于导入 easy-dataset
+```
+
+### 导出规则
+
+- 仅导出 `.md`，自动过滤 images / json / zip 等中间产物。
+- 保留上传时的相对目录结构，便于按原文档目录组织数据集。
+- `xxx.pdf` 自动导出为 `xxx.md`。
+- 单个 Markdown 默认按 45MB 拆分为 `xxx.part01.md`、`xxx.part02.md`，规避 easy-dataset 约 50MB 导入限制。
+- 若需要 API 调用，可使用 `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`。
 
 ## 🧠 RAG 知识库最佳实践
 

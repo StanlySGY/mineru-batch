@@ -60,7 +60,8 @@ graph TB
 - **Batch Upload & Parse** — Drag & drop PDF / Images / Word / PPT / Excel, auto-queue processing
 - **Folder Drag & Drop** — Directly drag folders to upload area, auto-detect and preserve directory structure
 - **Multi-node Load Balancing** — Configure multiple MinerU service nodes, round-robin task distribution
-- **RAG Bundle Output** — Support saving images / json / md complete artifacts, perfect for RAG knowledge base building
+- **RAG Bundle Output** — Save complete images / json / md artifacts for RAG knowledge base building
+- **easy-dataset Export** — Export Markdown-only ZIP, filter bulky intermediate artifacts, and split files for the 50MB import limit
 - **Real-time Status Push** — SSE real-time task status push, browser desktop notification support
 - **Markdown Preview** — Built-in rendered preview, source code toggle, full-text search highlighting, async rendering
 - **Task Management** — Batch retry / delete / convert / download, CSV export, one-click apply task parameters
@@ -127,7 +128,7 @@ Frontend and backend run separately with hot reload:
 - Drag & drop or click to upload, batch support, direct folder drag & drop auto-detection
 - Auto-detect document format (Word/PPT/Excel), optional auto-convert to PDF
 - Real-time upload progress display (speed + estimated remaining time)
-- Parse scenario selection: Academic / Plain Text / OCR, auto-override parse parameters
+- Parse scenario selection: easy-dataset / Academic / Plain Text / OCR, auto-override parse parameters
 - Per-batch node selection: pick which MinerU nodes to use for each upload batch, defaults to all enabled nodes
 
 ### Task Management
@@ -219,6 +220,7 @@ mineru-batch/
 | `POST` | `/api/tasks/batch/retry` | Batch retry tasks |
 | `POST` | `/api/tasks/batch/convert` | Batch convert documents to PDF |
 | `GET` | `/api/tasks/batch/download` | Batch download results |
+| `GET` | `/api/tasks/batch/download-markdown` | Export easy-dataset Markdown-only ZIP |
 | `GET` | `/api/stats` | Statistics overview |
 | `GET` | `/api/stats/trend` | Trend data |
 | `GET` | `/api/stats/filetypes` | File type distribution |
@@ -239,6 +241,34 @@ mineru-batch/
 | `POST` | `/api/storage/clean-sources` | Clean completed task source files |
 
 Full API documentation: http://localhost:8900/docs
+
+## easy-dataset Batch Import Workflow
+
+MinerU Batch can be used as a PDF-to-Markdown preprocessing tool for easy-dataset, especially for large PDFs, folder uploads, and mixed office documents.
+
+### Recommended Flow
+
+```bash
+# 1. Start MinerU Batch
+make prod
+
+# 2. Select the easy-dataset parse preset on the Upload page
+# This preset outputs lightweight Markdown and disables images, intermediate JSON, and model outputs
+
+# 3. Drag and drop a PDF folder
+# The system preserves relative folder structure
+
+# 4. After tasks complete, select them on the task list and click "easy-dataset package"
+# Download a Markdown-only ZIP for easy-dataset import
+```
+
+### Export Rules
+
+- Export only `.md` files and filter images / json / zip intermediate artifacts.
+- Preserve upload-time relative directory structure.
+- Convert `xxx.pdf` to `xxx.md` in the ZIP.
+- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default to stay below the easy-dataset 50MB import limit.
+- API usage: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.
 
 ## RAG Knowledge Base Best Practices
 

@@ -451,6 +451,21 @@ function handleBatchDownload() {
   document.body.removeChild(a)
 }
 
+function handleBatchMarkdownDownload() {
+  const ids = selectedIds.value.filter(id => {
+    const t = tasks.value.find(r => r.id === id)
+    return t && t.status === 'completed'
+  })
+  if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
+  const a = document.createElement('a')
+  a.href = api.batchMarkdownDownloadUrl(ids)
+  a.download = ''
+  a.target = '_blank'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 async function handleRetryAllFailed() {
   const items = tasks.value.filter(t => t.status === 'failed').map(t => ({ id: t.id, filename: t.original_filename }))
   if (!items.length) return ElMessage.warning('当前页无失败任务')
@@ -718,6 +733,9 @@ function checkMobile() {
         </el-button>
         <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
           下载选中
+        </el-button>
+        <el-button v-if="selectedHasDownloadable" type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
+          easy-dataset 包
         </el-button>
         <el-divider v-if="selectedIds.length" direction="vertical" />
         <el-button size="small" plain :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-button>

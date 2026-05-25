@@ -37,6 +37,10 @@ const PROFILES: Record<string, ProfileItem> = {
     label: '学术论文', desc: '公式/表格全开，保留完整结构信息',
     config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: true, returnImages: true },
   },
+  easyDataset: {
+    label: 'easy-dataset', desc: '输出轻量 Markdown，便于批量导入数据集',
+    config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: false, returnModelOutput: false, returnContentList: false, returnImages: false, responseFormatZip: false, replaceImageUrl: false, outputFormat: 'md' },
+  },
   plaintext: {
     label: '纯文本', desc: '仅提取文字，关闭格式识别和图片',
     config: { parseMethod: 'txt', formulaEnable: false, tableEnable: false, returnMd: false, returnMiddleJson: false, returnModelOutput: false, returnContentList: false, returnImages: false, responseFormatZip: false, replaceImageUrl: false, outputFormat: 'txt' },

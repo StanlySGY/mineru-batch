@@ -69,6 +69,12 @@ def parse_relative_paths(relative_paths: str | None) -> list:
         return []
 
 
+def normalize_relative_name(name: str | None, fallback: str) -> str:
+    value = (name or "").replace("\\", "/")
+    parts = [p.strip() for p in value.split("/") if p.strip() and p.strip() not in (".", "..")]
+    return "/".join(parts) if parts else fallback
+
+
 def generate_save_path(file: UploadFile, upload_dir: str) -> tuple[str, str]:
     """Generate saved filename and full save path."""
     ext = os.path.splitext(file.filename)[1] or ".pdf"
@@ -229,9 +235,7 @@ async def upload_files_impl(
         saved_name, save_path = generate_save_path(file, upload_dir)
         file_size = await save_upload_stream(file, save_path)
 
-        original_name = file.filename
-        if idx < len(rel_paths) and rel_paths[idx] and "/" in rel_paths[idx]:
-            original_name = rel_paths[idx].replace("/", "_")
+        original_name = normalize_relative_name(rel_paths[idx] if idx < len(rel_paths) else None, file.filename or saved_name)
 
         ep = pick_endpoint_fn(endpoints_list) if endpoints_list else None
         selected_api = ep.get("apiKey") if ep else api_key

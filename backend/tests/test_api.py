@@ -1,5 +1,7 @@
 import os
+import io
 import asyncio
+import zipfile
 from unittest.mock import patch, MagicMock
 from models import FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel
 
@@ -237,6 +239,46 @@ class TestBatchOperations:
         db_session.refresh(sample_task)
         assert sample_task.status == TaskStatus.PENDING
         assert sample_task.output_path is None
+
+    def test_batch_download_markdown_only_keeps_relative_name(self, client, db_session, tmp_dirs):
+        out_dir = os.path.join(tmp_dirs["output"], "bundle")
+        os.makedirs(out_dir)
+        with open(os.path.join(out_dir, "output.md"), "w", encoding="utf-8") as f:
+            f.write("# Hello")
+        with open(os.path.join(out_dir, "middle.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        task = FileTask(
+            original_filename="docs/a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf",
+            status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_dir,
+        )
+        db_session.add(task)
+        db_session.commit()
+
+        resp = client.get("/api/tasks/batch/download-markdown", params={"ids": str(task.id)})
+
+        assert resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            assert zf.namelist() == ["docs/a.md"]
+            assert zf.read("docs/a.md").decode() == "# Hello"
+
+    def test_batch_download_markdown_splits_large_file(self, client, db_session, tmp_dirs):
+        out_path = os.path.join(tmp_dirs["output"], "large.md")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("a" * (1024 * 1024 + 10))
+        task = FileTask(
+            original_filename="large.pdf", saved_filename="large.pdf", file_path="/tmp/large.pdf",
+            status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_path,
+        )
+        db_session.add(task)
+        db_session.commit()
+
+        resp = client.get("/api/tasks/batch/download-markdown", params={"ids": str(task.id), "max_part_mb": 1})
+
+        assert resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            names = zf.namelist()
+            assert names == ["large.part01.md", "large.part02.md"]
+            assert len(zf.read(names[0])) <= 1024 * 1024
 
 
 class TestPreviewDownload:
