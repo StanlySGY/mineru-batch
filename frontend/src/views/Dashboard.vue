@@ -73,6 +73,11 @@ const queueLoadRate = computed(() => {
   if (!queueStatus.value?.concurrency) return 0
   return Math.min(100, Math.round((queueStatus.value.processing / queueStatus.value.concurrency) * 100))
 })
+const failureItems = computed(() => Array.isArray(failureCategories.value?.items) ? failureCategories.value.items : [])
+const recentFailures = computed(() => Array.isArray(qualityReport.value?.recent_failures) ? qualityReport.value.recent_failures : [])
+const batchItems = computed(() => Array.isArray(batchProgress.value?.items) ? batchProgress.value.items : [])
+const waitingTasks = computed(() => Array.isArray(queueStatus.value?.waiting_tasks) ? queueStatus.value.waiting_tasks : [])
+const healthyNodes = computed(() => Array.isArray(nodeHealth.value?.nodes) ? nodeHealth.value.nodes : [])
 
 const failureLabel: Record<string, string> = {
   timeout: '超时', network: '网络', conversion: '转换', mineru_api: 'MinerU API', other: '其他',
@@ -92,7 +97,7 @@ async function loadStats() {
       api.getNodeHealth().catch(() => null),
     ])
     stats.value = statsRes
-    recentTasks.value = recentRes.items
+    recentTasks.value = Array.isArray(recentRes?.items) ? recentRes.items : []
     if (storRes) storageInfo.value = storRes
     if (qualityRes) qualityReport.value = qualityRes
     if (queueRes) queueStatus.value = queueRes
@@ -130,7 +135,7 @@ async function loadTrend() {
 async function loadFiletypes() {
   try {
     const data = await api.getStatsFiletypes()
-    if (!data.length) return
+    if (!Array.isArray(data) || !data.length) return
     if (!pieRef.value) {
       pieRef.value = echarts.init(pieEl.value!)
     }
@@ -271,26 +276,26 @@ onUnmounted(() => {
           <div class="quality-item"><span>处理中</span><strong>{{ qualityReport.processing }}</strong></div>
           <div class="quality-item"><span>平均耗时</span><strong>{{ avgDuration }}</strong></div>
         </div>
-        <div class="insight-list" v-if="failureCategories?.items.length">
-          <div v-for="item in failureCategories.items" :key="item.category" class="insight-item danger">
+        <div class="insight-list" v-if="failureItems.length">
+          <div v-for="item in failureItems" :key="item.category" class="insight-item danger">
             <span>{{ failureLabel[item.category] || item.category }}</span>
             <strong>{{ item.count }}</strong>
           </div>
         </div>
-        <div v-if="qualityReport?.recent_failures.length" class="failure-list">
-          <div v-for="item in qualityReport.recent_failures" :key="item.id" class="failure-item" @click="router.push('/tasks?status=failed')">
+        <div v-if="recentFailures.length" class="failure-list">
+          <div v-for="item in recentFailures" :key="item.id" class="failure-item" @click="router.push('/tasks?status=failed')">
             <span>{{ item.filename }}</span>
             <small>{{ item.error_message || '解析失败' }}</small>
           </div>
         </div>
       </el-card>
 
-      <el-card shadow="never" class="recent-card" v-if="batchProgress?.items.length">
+      <el-card shadow="never" class="recent-card" v-if="batchItems.length">
         <template #header>
           <span class="card-title">批次进度</span>
         </template>
         <div class="batch-list">
-          <div v-for="batch in batchProgress.items.slice(0, 4)" :key="batch.batch_id" class="batch-item" @click="router.push(`/tasks?batch_id=${batch.batch_id}`)">
+          <div v-for="batch in batchItems.slice(0, 4)" :key="batch.batch_id" class="batch-item" @click="router.push(`/tasks?batch_id=${batch.batch_id}`)">
             <div class="batch-title"><span>{{ batch.batch_name || batch.batch_id }}</span><strong>{{ batch.progress }}%</strong></div>
             <el-progress :percentage="batch.progress" :stroke-width="8" />
             <small>共 {{ batch.total }} · 完成 {{ batch.completed }} · 失败 {{ batch.failed }}</small>
@@ -339,8 +344,8 @@ onUnmounted(() => {
               <div><span>可用槽位</span><strong>{{ queueStatus.available_slots }}</strong></div>
             </div>
           </div>
-          <div class="waiting-list" v-if="queueStatus.waiting_tasks.length">
-            <div v-for="item in queueStatus.waiting_tasks" :key="item.id" class="waiting-item" @click="router.push('/tasks?status=pending')">
+          <div class="waiting-list" v-if="waitingTasks.length">
+            <div v-for="item in waitingTasks" :key="item.id" class="waiting-item" @click="router.push('/tasks?status=pending')">
               <span>{{ item.filename }}</span>
               <small>#{{ item.id }} · 优先级 {{ item.priority }}</small>
             </div>
@@ -354,7 +359,7 @@ onUnmounted(() => {
           <span class="card-title">节点健康</span>
         </template>
         <div v-if="nodeHealth" class="health-list">
-          <div v-for="node in nodeHealth.nodes.slice(0, 4)" :key="node.index" class="health-item">
+          <div v-for="node in healthyNodes.slice(0, 4)" :key="node.index" class="health-item">
             <span class="health-dot" :class="node.status"></span>
             <span>{{ node.url }}</span>
             <strong>{{ node.ok ? `${node.latency_ms}ms` : node.status }}</strong>

@@ -19,6 +19,12 @@ function setStoredAdminKey(key: string) {
   else localStorage.removeItem(adminKeyStorage)
 }
 
+function showApiUnavailableOnce() {
+  if (window.__apiErrorShown) return
+  window.__apiErrorShown = true
+  ElMessage.warning('后端服务未连接，仅可预览界面')
+}
+
 http.interceptors.request.use((config) => {
   const key = getStoredAdminKey()
   if (key) config.headers = AxiosHeaders.from(config.headers).set('X-Admin-Api-Key', key)
@@ -26,14 +32,18 @@ http.interceptors.request.use((config) => {
 })
 
 http.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    const contentType = String(res.headers?.['content-type'] || '')
+    const body = typeof res.data === 'string' ? res.data.trimStart().toLowerCase() : ''
+    if (contentType.includes('text/html') || body.startsWith('<!doctype html') || body.startsWith('<html')) {
+      showApiUnavailableOnce()
+      return Promise.reject(new Error('API returned HTML fallback'))
+    }
+    return res
+  },
   (err) => {
     if (!err.response) {
-      // 只在首次连接失败时提示一次
-      if (!window.__apiErrorShown) {
-        window.__apiErrorShown = true
-        ElMessage.warning('后端服务未连接，仅可预览界面')
-      }
+      showApiUnavailableOnce()
     } else {
       const status = err.response.status
       // 404 是预期的（后端未部署），不显示错误
