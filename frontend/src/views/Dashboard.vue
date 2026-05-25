@@ -219,13 +219,13 @@ onUnmounted(() => {
   </div>
   <div class="dashboard" v-else v-loading="loading">
   <div v-if="stats.total === 0" class="empty-dashboard">
-    <el-empty description="还没有任何任务" :image-size="80">
-      <el-button type="primary" size="large" :icon="UploadFilled" @click="router.push('/upload')">上传你的第一个文件</el-button>
+    <el-empty description="还没有解析任务" :image-size="80">
+      <el-button type="primary" size="large" :icon="UploadFilled" @click="router.push('/upload')">开始处理 easy-dataset 文档</el-button>
     </el-empty>
     <div class="empty-steps">
       <div class="empty-step"><strong>1.</strong> 在设置页配置 MinerU 服务地址</div>
-      <div class="empty-step"><strong>2.</strong> 上传 PDF / 图片 / Word 文件</div>
-      <div class="empty-step"><strong>3.</strong> 等待解析完成，预览或下载结果</div>
+      <div class="empty-step"><strong>2.</strong> 在上传页选择 easy-dataset 场景并拖拽 PDF 文件夹</div>
+      <div class="empty-step"><strong>3.</strong> 任务完成后下载 Markdown-only ZIP 导入 easy-dataset</div>
     </div>
   </div>
   <template v-else>
@@ -396,14 +396,14 @@ onUnmounted(() => {
 
   <el-dialog v-model="showWelcome" title="欢迎使用 MinerU Batch" width="480px" :close-on-click-modal="false">
     <div style="line-height:1.8;color:#606266">
-      <p>MinerU Batch 是一个批量文档解析工具，可以将 PDF、图片、Word 等文件转换为 Markdown 格式，非常适合搭建 RAG 知识库。</p>
-      <h4 style="margin:16px 0 8px;color:#303133">快速开始</h4>
+      <p>MinerU Batch 可将批量 PDF、图片和 Office 文档转换为 Markdown，适合作为 easy-dataset 的前置预处理工具。</p>
+      <h4 style="margin:16px 0 8px;color:#303133">推荐流程</h4>
       <ol style="padding-left:20px;margin:0">
         <li>前往 <strong>设置页</strong> 配置 MinerU 服务地址</li>
-        <li>在 <strong>上传页</strong> 拖拽或选择文件上传</li>
-        <li>等待解析完成，在 <strong>任务页</strong> 预览或下载结果</li>
+        <li>在 <strong>上传页</strong> 选择 easy-dataset 场景并拖拽 PDF 文件夹</li>
+        <li>任务完成后在 <strong>任务页</strong> 下载 Markdown-only ZIP 并导入 easy-dataset</li>
       </ol>
-      <p style="margin-top:12px;font-size:13px;color:#909399">提示：如果没有 MinerU 服务，可以先体验界面功能。</p>
+      <p style="margin-top:12px;font-size:13px;color:#909399">提示：在线演示仅预览界面，完整解析能力需要部署后端服务。</p>
     </div>
     <template #footer>
       <el-button @click="dismissWelcome">稍后再说</el-button>

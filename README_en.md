@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**Batch PDF / Document Parsing Tool powered by MinerU API**
+**Batch PDF / document to Markdown preprocessing for easy-dataset**
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://python.org)
 [![Vue](https://img.shields.io/badge/Vue-3.5-42b883.svg)](https://vuejs.org)
@@ -13,89 +13,117 @@ English | [中文](./README.md)
 
 </div>
 
----
+MinerU Batch converts large batches of PDFs, images, and Office documents into Markdown, with a primary focus on making easy-dataset imports faster, smaller, and easier to organize.
+
+## Use Cases
+
+- Preprocess large PDF collections into lightweight Markdown for easy-dataset.
+- Split oversized Markdown files to stay below easy-dataset import limits.
+- Preserve the original folder structure for dataset organization.
+- Dispatch parsing jobs across multiple MinerU API nodes for higher throughput.
+- Keep full images / json / md bundle outputs for RAG knowledge base workflows when needed.
+
+## Core Capabilities
+
+- **easy-dataset export**: Export a Markdown-only ZIP and filter images, json, zip, and other intermediate artifacts.
+- **Large file splitting**: Split each Markdown file at 45MB by default to stay below the roughly 50MB easy-dataset import limit.
+- **Folder batch upload**: Drag and drop folders, auto-detect supported files, and preserve relative paths.
+- **Parse presets**: Select easy-dataset / Academic / Plain Text / Scanned OCR presets during upload.
+- **Multi-node load balancing**: Configure multiple MinerU service nodes and distribute tasks with Round-Robin scheduling.
+- **Queue and realtime status**: Async queue, concurrency control, SSE updates, and browser notifications.
+- **Preview and edit**: Markdown rendering, source mode, split view, full-text search, and saved content edits.
+- **Batch operations**: Retry, delete, convert, download, clean storage, inspect logs, and review quality metrics.
+
+## Online Demo
+
+[Open the frontend demo](https://mineru-batch.vercel.app/)
+
+The Vercel deployment is a static frontend preview only. It does not include backend APIs, file upload, MinerU calls, or task processing. Deploy the full service with Docker, Make, or the offline package to use parsing and downloads.
 
 ## Screenshots
 
 <div align="center">
 <img src="docs/dashboard.png" width="80%" alt="Dashboard Overview" />
-<p><em>Dashboard: Task statistics, trend charts, file type distribution</em></p>
+<p><em>Dashboard: task metrics, queue status, trend charts, and node health</em></p>
 </div>
 
 <div align="center">
-<img src="docs/upload.png" width="80%" alt="Upload & Parse" />
-<p><em>Upload: Drag & drop folders, batch concurrent upload, real-time progress</em></p>
+<img src="docs/upload.png" width="80%" alt="Upload and Parse" />
+<p><em>Upload: drag folders, select the easy-dataset preset, and upload in concurrent batches</em></p>
 </div>
 
 <div align="center">
 <img src="docs/preview.png" width="80%" alt="Markdown Preview" />
-<p><em>Markdown Preview: Render/source toggle, full-text search highlighting</em></p>
+<p><em>Markdown Preview: rendered / source / split view with full-text search</em></p>
 </div>
 
-## Features
+## easy-dataset Batch Import Workflow
 
-```mermaid
-graph TB
-    User[User Browser] -->|Upload| LB[MinerU Batch Scheduler]
-    LB -->|Round-Robin| N1[MinerU Node 1]
-    LB -->|Round-Robin| N2[MinerU Node 2]
-    LB -->|Round-Robin| N3[MinerU Node 3]
-    N1 -->|Result| LB
-    N2 -->|Result| LB
-    N3 -->|Result| LB
-    LB -->|SSE Push| User
-    LB -->|Store| DB[(SQLite)]
-    LB -->|Files| FS[Filesystem]
-    LB -->|Webhook| EXT[External Service]
+### Recommended Flow
+
+```bash
+# 1. Start MinerU Batch
+make prod
+
+# 2. Configure MinerU API nodes in Settings
+# Add multiple nodes if you need higher batch throughput
+
+# 3. Select the easy-dataset parse preset on the Upload page
+# This preset outputs lightweight Markdown and disables images, intermediate JSON, and model outputs
+
+# 4. Drag and drop a PDF folder
+# The system preserves relative folder structure
+
+# 5. After tasks complete, select them on the task list and click "easy-dataset package"
+# Download the Markdown-only ZIP and import it into easy-dataset
 ```
 
-**Core Capabilities:**
-- Multi-node load balancing (Round-Robin)
-- Async task queue (concurrency control)
-- ZIP stream auto-extraction (Bundle output preservation)
-- Webhook auto-push (pipeline integration)
+### Export Rules
 
-## Features
-
-- **Batch Upload & Parse** — Drag & drop PDF / Images / Word / PPT / Excel, auto-queue processing
-- **Folder Drag & Drop** — Directly drag folders to upload area, auto-detect and preserve directory structure
-- **Multi-node Load Balancing** — Configure multiple MinerU service nodes, round-robin task distribution
-- **RAG Bundle Output** — Save complete images / json / md artifacts for RAG knowledge base building
-- **easy-dataset Export** — Export Markdown-only ZIP, filter bulky intermediate artifacts, and split files for the 50MB import limit
-- **Real-time Status Push** — SSE real-time task status push, browser desktop notification support
-- **Markdown Preview** — Built-in rendered preview, source code toggle, full-text search highlighting, async rendering
-- **Task Management** — Batch retry / delete / convert / download, CSV export, one-click apply task parameters
-- **Parse Scenario Presets** — One-click switch between Academic/Plain Text/OCR presets on upload, auto-override parse parameters
-- **Trend Charts** — Dashboard displays 7-day trends, file type distribution
-- **Storage Cleanup** — One-click cleanup of completed task source files, free disk space
-- **Mobile Responsive** — Responsive layout, sidebar auto-collapse
+- Export only `.md` files and filter images / json / zip intermediate artifacts.
+- Preserve upload-time relative directory structure.
+- Convert `xxx.pdf` to `xxx.md` inside the ZIP.
+- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default.
+- API usage: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.
 
 ## Quick Start
 
-### Option 1: Make (Recommended)
+### Option 1: Make
 
 ```bash
-# Production mode — auto-build frontend + start service
 make prod
 ```
 
-Visit http://localhost:8900
+Visit: http://localhost:8900
 
-### Option 2: Docker
+This is suitable for local trials or direct server execution. The host needs LibreOffice for Word / PPT / Excel to PDF conversion.
+
+### Option 2: Docker Compose
 
 ```bash
 cp .env.example .env
-# Adjust APP_PORT, ADMIN_API_KEY, ALLOW_PRIVATE_ENDPOINTS as needed
+# Adjust APP_PORT, ADMIN_API_KEY, and ALLOW_PRIVATE_ENDPOINTS as needed
 docker compose --env-file .env up -d
 ```
 
-Data persisted in Docker volume `data`. For production, set `ADMIN_API_KEY` and enable `ALLOW_PRIVATE_ENDPOINTS=true` only in trusted private networks.
+Visit: http://localhost:8900
+
+Data is persisted in the Docker volume `data`. For production, set `ADMIN_API_KEY`; for public deployments, set `ALLOW_PRIVATE_ENDPOINTS=false`.
+
+### Option 3: Development Mode
+
+```bash
+make dev
+```
+
+- Frontend: http://localhost:3001
+- Backend: http://localhost:8900/docs
 
 ### Offline Deployment
 
 ```bash
 bash prepare-offline.sh
-# Copy generated mineru-batch-offline-*.tar.gz to target machine, extract it, then run deploy.sh
+# Copy generated mineru-batch-offline-*.tar.gz to the target machine, extract it, then run deploy.sh
 ```
 
 Offline upgrade:
@@ -104,82 +132,99 @@ Offline upgrade:
 bash update-offline.sh mineru-batch-offline-vX.Y.Z.tar.gz
 ```
 
-### Option 3: Development Mode
+## Deployment Guide
 
-```bash
-make dev
-```
-
-Frontend and backend run separately with hot reload:
-- Frontend: http://localhost:3001
-- Backend: http://localhost:8900/docs
+| Scenario | Recommended Method | Notes |
+|----------|--------------------|-------|
+| Local trial | `make prod` | Fastest way to run the full frontend and backend |
+| Long-running server | Docker Compose | Recommended production deployment with persistence and easier upgrades |
+| Offline private environment | Offline package | Suitable when the target machine cannot access image registries |
+| UI preview only | Vercel | Static frontend demo only, no backend API |
+| Public production | Docker Compose + Nginx | Configure HTTPS, upload limits, admin key, and CORS |
 
 ## Feature Details
 
-### Dashboard Overview
+### Dashboard
 
-- Task statistics cards (Total / Pending / Processing / Completed / Failed)
-- Success rate, average duration, disk usage
-- 7-day completion/failure trend chart
-- File type distribution pie chart
+- Task metric cards: total, pending, processing, completed, and failed.
+- Success rate, failure rate, average duration, and disk usage.
+- 7-day completion / failure trend chart.
+- File type distribution, failure categories, batch progress, and node health.
 
-### Upload & Parse
+### Upload and Parse
 
-- Drag & drop or click to upload, batch support, direct folder drag & drop auto-detection
-- Auto-detect document format (Word/PPT/Excel), optional auto-convert to PDF
-- Real-time upload progress display (speed + estimated remaining time)
-- Parse scenario selection: easy-dataset / Academic / Plain Text / OCR, auto-override parse parameters
-- Per-batch node selection: pick which MinerU nodes to use for each upload batch, defaults to all enabled nodes
+- Drag and drop or click to upload files and folders.
+- Auto-detect Word / PPT / Excel and optionally convert them to PDF.
+- Realtime upload progress with speed and estimated remaining time.
+- easy-dataset / Academic / Plain Text / Scanned OCR parse presets.
+- Per-batch MinerU node selection, defaulting to all enabled nodes.
 
 ### Task Management
 
-- Task list supports search, status filter, sort
-- Click task row to view detail drawer (timeline, MinerU parameters, error stack)
-- Batch operations: retry / delete / convert / download
-- Retry with node selection: keep original node, switch to another enabled node, or use a custom URL
-- One-click apply task parameters, quickly reproduce parse config
-- Mobile auto-switch to card layout
+- Search, filter, and paginate tasks.
+- Detail drawer with timeline, MinerU parameters, and error stack.
+- Batch retry, delete, convert, download, and easy-dataset package export.
+- Retry with the original node, another enabled node, or a custom URL.
+- Mobile layout automatically switches to cards.
 
-### Preview & Search
+### Preview and Edit
 
-- Markdown async rendered preview, code block syntax highlighting
-- Source / rendered mode toggle
-- Full-text search, match highlighting + up/down navigation
+- Async Markdown rendering with code highlighting.
+- Source / rendered / split view modes.
+- Full-text search, match highlighting, and previous / next navigation.
+- Save edited Markdown content.
+
+### Logs and Operations
+
+- Group logs by task.
+- Inspect raw MinerU container logs.
+- Clean upload files, output files, converted files, and database storage.
+- Review quality reports, failure categories, queue status, and node health.
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEV_MODE` | — | Set to `1` to skip static file serving |
-| `CORS_ORIGINS` | — | Allowed CORS origins (comma-separated) |
+| `CORS_ORIGINS` | — | Allowed CORS origins, separated by commas |
 | `UPLOAD_DIR` | `./uploads` | Upload file directory |
 | `OUTPUT_DIR` | `./outputs` | Output file directory |
 | `CONVERT_DIR` | `./converted` | Document conversion directory |
-| `DATABASE_URL` | `sqlite:///./mineru_batch.db` | Database connection URL |
-| `ADMIN_API_KEY` | — | Admin API key; required for delete, retry, cleanup, and settings updates when set |
-| `ALLOW_PRIVATE_ENDPOINTS` | `true` | Whether MinerU endpoints may use private/internal addresses; set to `false` for public production deployments |
+| `DATABASE_URL` | `sqlite:///./mineru_batch.db` | Database connection URL, supports SQLite and PostgreSQL |
+| `ADMIN_API_KEY` | — | Admin API key; when set, delete, retry, cleanup, and settings updates require authentication |
+| `ALLOW_PRIVATE_ENDPOINTS` | `true` | Whether MinerU endpoints may use private / internal addresses; set to `false` for public production |
 | `TAG` | `v0.1.0` | Docker Compose image tag |
 | `APP_PORT` | `8900` | Docker Compose published port |
 | `TZ` | `Asia/Shanghai` | Container timezone |
-| `VITE_API_BASE_URL` | `/api` | Backend API base URL for split frontend/backend deployments |
+| `VITE_API_BASE_URL` | `/api` | Backend API base URL for split frontend / backend deployments |
+
+## Production Security Checklist
+
+- Set a strong random `ADMIN_API_KEY` to protect admin operations.
+- Set `ALLOW_PRIVATE_ENDPOINTS=false` for public deployments to reduce SSRF exposure.
+- Configure `CORS_ORIGINS` to allow only trusted frontend origins.
+- Configure HTTPS and upload size limits through Nginx or your gateway.
+- Do not expose internal MinerU nodes directly to the public internet.
+- Regularly clean completed task source files with the storage cleanup feature.
+- Check logs before sharing them externally because they may contain internal URLs, API keys, or file content.
 
 ## Directory Structure
 
-```
+```text
 mineru-batch/
 ├── backend/
-│   ├── main.py          # FastAPI entry + frontend static serving
-│   ├── routes.py        # API routes (upload, tasks, logs, stats)
-│   ├── models.py        # SQLAlchemy models
+│   ├── main.py              # FastAPI entry + frontend static serving
+│   ├── routes.py            # API routes
+│   ├── models.py            # SQLAlchemy models
+│   ├── services/            # Business service layer
 │   ├── requirements.txt
-│   └── tests/           # pytest test suite (68+ tests)
+│   └── tests/               # pytest test suite
 ├── frontend/
 │   ├── src/
-│   │   ├── views/       # Page components
-│   │   ├── stores/      # Config state management
-│   │   ├── utils/       # Utility functions
-│   │   └── api.ts       # API wrapper
-│   ├── public/
+│   │   ├── views/           # Page components
+│   │   ├── stores/          # Config state management
+│   │   ├── utils/           # Utilities
+│   │   └── api.ts           # API wrapper
 │   └── vite.config.ts
 ├── docker-compose.yml
 ├── Dockerfile
@@ -196,7 +241,7 @@ mineru-batch/
 |-------|------------|
 | Frontend | Vue 3 + TypeScript + Element Plus + ECharts + Marked |
 | Backend | FastAPI + SQLAlchemy + SQLite / PostgreSQL |
-| Document Conversion | LibreOffice (headless) |
+| Document Conversion | LibreOffice headless |
 | Deployment | Docker / Make / uvicorn |
 
 ## API Endpoints
@@ -204,7 +249,7 @@ mineru-batch/
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/upload` | Upload files and create tasks |
-| `GET` | `/api/tasks` | Task list (paginated, filtered) |
+| `GET` | `/api/tasks` | Task list with pagination and filters |
 | `GET` | `/api/tasks/events` | Realtime task status SSE stream |
 | `GET` | `/api/tasks/since` | Sync task updates missed during disconnects |
 | `GET` | `/api/tasks/{id}` | Task details |
@@ -225,6 +270,9 @@ mineru-batch/
 | `GET` | `/api/stats/trend` | Trend data |
 | `GET` | `/api/stats/filetypes` | File type distribution |
 | `GET` | `/api/reports/quality` | Quality report |
+| `GET` | `/api/reports/failures` | Failure categories |
+| `GET` | `/api/reports/batches` | Batch progress report |
+| `GET` | `/api/nodes/health` | MinerU node health |
 | `GET` | `/api/settings` | Read server settings |
 | `PUT` | `/api/settings` | Save server settings |
 | `GET` | `/api/security/status` | Security configuration status |
@@ -237,87 +285,25 @@ mineru-batch/
 | `DELETE` | `/api/logs` | Clear logs |
 | `GET` | `/api/logs/mineru-container` | Raw MinerU container logs |
 | `GET` | `/api/storage` | Storage usage |
-| `POST` | `/api/storage/clean` | Clean specified directory |
+| `POST` | `/api/storage/clean` | Clean selected storage targets |
 | `POST` | `/api/storage/clean-sources` | Clean completed task source files |
 
 Full API documentation: http://localhost:8900/docs
 
-## easy-dataset Batch Import Workflow
+## RAG Knowledge Base Extension
 
-MinerU Batch can be used as a PDF-to-Markdown preprocessing tool for easy-dataset, especially for large PDFs, folder uploads, and mixed office documents.
+Besides easy-dataset, MinerU Batch can preserve complete MinerU bundle outputs for RAG knowledge base workflows.
 
-### Recommended Flow
-
-```bash
-# 1. Start MinerU Batch
-make prod
-
-# 2. Select the easy-dataset parse preset on the Upload page
-# This preset outputs lightweight Markdown and disables images, intermediate JSON, and model outputs
-
-# 3. Drag and drop a PDF folder
-# The system preserves relative folder structure
-
-# 4. After tasks complete, select them on the task list and click "easy-dataset package"
-# Download a Markdown-only ZIP for easy-dataset import
-```
-
-### Export Rules
-
-- Export only `.md` files and filter images / json / zip intermediate artifacts.
-- Preserve upload-time relative directory structure.
-- Convert `xxx.pdf` to `xxx.md` in the ZIP.
-- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default to stay below the easy-dataset 50MB import limit.
-- API usage: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.
-
-## RAG Knowledge Base Best Practices
-
-The core value of MinerU Batch is providing high-quality corpus for LLM knowledge bases.
-
-### Scenario: Batch Process Technical Documents
-
-```bash
-# 1. Prepare document directory
-mkdir -p ~/rag-source-docs
-# Place PDF/Word/PPT files
-
-# 2. Start MinerU Batch
-make prod
-
-# 3. Configure MinerU nodes in Settings page
-
-# 4. Drag entire folder to upload area
-# System auto-preserves directory structure
-
-# 5. Wait for parsing, download Bundle
-# Bundle contains: output.md + images/ + content_list.json
-```
-
-### Recommended Config
+Recommended configuration:
 
 | Scenario | parse_method | formula_enable | table_enable | return_images |
 |----------|--------------|----------------|--------------|---------------|
-| Technical Docs | auto | true | true | true |
-| Academic Papers | auto | true | true | true |
-| Plain Text Reports | txt | false | false | false |
+| Technical docs | auto | true | true | true |
+| Academic papers | auto | true | true | true |
+| Plain text reports | txt | false | false | false |
 | Scanned PDFs | ocr | true | true | true |
 
-### Webhook Auto-Push
-
-Configure Webhook URL to auto-push results on task completion:
-
-```json
-{
-  "task_id": 42,
-  "filename": "paper.pdf",
-  "status": "completed",
-  "output_format": "md",
-  "content": "...parsed Markdown content...",
-  "images": ["img1.png", "img2.png"]
-}
-```
-
-Compatible with: Dify, FastGPT, LangChain and other RAG frameworks.
+Webhook integration can push parsed results after task completion, which works well with Dify, FastGPT, LangChain, and similar pipelines.
 
 ## Development
 
@@ -337,6 +323,51 @@ make build
 # Clean
 make clean
 ```
+
+## Hardware and Dependencies
+
+MinerU Batch itself is a lightweight scheduler. Heavy parsing work happens on your configured MinerU API nodes. A 1-core 2GB lightweight server is usually enough for the scheduler.
+
+- Docker deployment: LibreOffice is already included in the image.
+- `make prod`: LibreOffice must be installed on the host.
+
+```bash
+# Ubuntu / Debian
+sudo apt install libreoffice
+
+# CentOS / RHEL
+sudo yum install libreoffice
+```
+
+## FAQ
+
+**Q: Why cannot the Vercel demo upload files?**
+
+A: The Vercel version is a static frontend preview only. Full upload, parsing, and download capabilities require a deployed backend service.
+
+**Q: Uploading a large file returns 413 Request Entity Too Large.**
+
+A: If you use Nginx as a reverse proxy, increase the upload limit:
+
+```nginx
+client_max_body_size 500m;
+```
+
+**Q: DOCX / PPT / Excel to PDF conversion fails.**
+
+A: Check whether LibreOffice is installed. Docker deployments include it by default; `make prod` requires host-level installation.
+
+**Q: How do I configure multiple MinerU nodes?**
+
+A: Add and enable nodes in the Settings page. During upload, you can select which nodes the batch should use; tasks are distributed automatically.
+
+**Q: Why does the easy-dataset package not include images or JSON?**
+
+A: This is expected. The easy-dataset package exports Markdown only to reduce import size. Use normal batch download if you need complete artifacts.
+
+**Q: Is PostgreSQL supported?**
+
+A: Yes. Set `DATABASE_URL=postgresql://user:password@host:5432/mineru_batch`.
 
 ## License
 
