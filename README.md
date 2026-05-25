@@ -83,8 +83,10 @@ make prod
 - 仅导出 `.md` 文件，自动过滤 images / json / zip 等中间产物。
 - 保留上传时的相对目录结构，便于按原资料目录组织数据集。
 - `xxx.pdf` 自动导出为 `xxx.md`。
-- 单个 Markdown 默认按 45MB 拆分为 `xxx.part01.md`、`xxx.part02.md`。
-- API 调用：`GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`。
+- 单个 Markdown 默认按 45MB 拆分为 `xxx.part01.md`、`xxx.part02.md`，优先按标题和段落边界切分。
+- ZIP 内包含 `manifest.json`，记录导出任务、分片文件名、Markdown 大小和跳过项。
+- 导出前可预估：`GET /api/tasks/batch/estimate-markdown?ids=1,2,3&max_part_mb=45`。
+- 下载 API：`GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`。
 
 ## 快速启动
 

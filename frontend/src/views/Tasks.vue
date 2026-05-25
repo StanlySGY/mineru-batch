@@ -457,9 +457,19 @@ async function handleBatchMarkdownDownload() {
     return t && t.status === 'completed'
   })
   if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
+  const maxPartMb = 45
+  let estimate
+  try {
+    estimate = await api.estimateMarkdownExport(ids, maxPartMb)
+  } catch {
+    return
+  }
+  const sampleFiles = estimate.files.flatMap(file => file.archive_files).slice(0, 5)
+  const skippedText = estimate.skipped_tasks ? `，跳过 ${estimate.skipped_tasks} 个无可用 Markdown 输出` : ''
+  const sampleText = sampleFiles.length ? `\n示例文件：${sampleFiles.join('、')}${estimate.total_parts > sampleFiles.length ? ' ...' : ''}` : ''
   try {
     await ElMessageBox.confirm(
-      `将导出 ${ids.length} 个已完成任务的 Markdown-only ZIP，仅包含 .md 文件，保留目录结构，超过 45MB 自动分片。`,
+      `将导出 ${estimate.exported_tasks} 个任务，共 ${estimate.total_parts} 个 Markdown 文件，总大小 ${formatSize(estimate.total_markdown_bytes)}${skippedText}。ZIP 将包含 ${estimate.manifest_name}，保留目录结构，超过 ${estimate.max_part_mb}MB 时优先按标题/段落分片。${sampleText}`,
       '导出 easy-dataset 包',
       { confirmButtonText: '导出', cancelButtonText: '取消', type: 'info' },
     )
@@ -467,7 +477,7 @@ async function handleBatchMarkdownDownload() {
     return
   }
   const a = document.createElement('a')
-  a.href = api.batchMarkdownDownloadUrl(ids)
+  a.href = api.batchMarkdownDownloadUrl(ids, maxPartMb)
   a.download = ''
   a.target = '_blank'
   document.body.appendChild(a)

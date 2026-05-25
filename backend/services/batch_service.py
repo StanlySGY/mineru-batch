@@ -1,6 +1,7 @@
 """Batch service — business logic for batch task operations."""
 import os
 import io
+import json
 import zipfile
 import asyncio
 
@@ -68,13 +69,27 @@ def _take_utf8_prefix(text: str, limit: int) -> tuple[str, str]:
     for idx, ch in enumerate(text):
         size = len(ch.encode("utf-8"))
         if total + size > limit:
-            return text[:idx], text[idx:]
+            return (ch, text[idx + 1:]) if idx == 0 else (text[:idx], text[idx:])
         total += size
     return text, ""
 
 
+def _byte_len(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def _split_oversized_block(text: str, max_bytes: int) -> list[str]:
+    parts: list[str] = []
+    rest = text
+    while rest:
+        segment, rest = _take_utf8_prefix(rest, max_bytes)
+        if segment:
+            parts.append(segment)
+    return parts
+
+
 def _split_markdown(content: str, max_bytes: int) -> list[str]:
-    if len(content.encode("utf-8")) <= max_bytes:
+    if _byte_len(content) <= max_bytes:
         return [content]
     chunks: list[str] = []
     current: list[str] = []
@@ -87,22 +102,29 @@ def _split_markdown(content: str, max_bytes: int) -> list[str]:
             current = []
             current_bytes = 0
 
-    for line in content.splitlines(keepends=True):
-        rest = line
-        while rest:
-            available = max_bytes - current_bytes
-            if available <= 0:
-                flush()
-                available = max_bytes
-            if len(rest.encode("utf-8")) <= available:
-                current.append(rest)
-                current_bytes += len(rest.encode("utf-8"))
-                break
-            segment, rest = _take_utf8_prefix(rest, available)
-            if segment:
-                current.append(segment)
-                current_bytes += len(segment.encode("utf-8"))
+    def append_block(block: str) -> None:
+        nonlocal current_bytes
+        block_bytes = _byte_len(block)
+        if block_bytes > max_bytes:
             flush()
+            chunks.extend(_split_oversized_block(block, max_bytes))
+            return
+        if current and current_bytes + block_bytes > max_bytes:
+            flush()
+        current.append(block)
+        current_bytes += block_bytes
+
+    block: list[str] = []
+    for line in content.splitlines(keepends=True):
+        if line.startswith("#") and block:
+            append_block("".join(block))
+            block = []
+        block.append(line)
+        if not line.strip():
+            append_block("".join(block))
+            block = []
+    if block:
+        append_block("".join(block))
     flush()
     return chunks
 
@@ -190,7 +212,7 @@ def batch_download_tasks_impl(db: Session, ids: str) -> io.BytesIO:
     return buf
 
 
-def batch_download_markdown_tasks_impl(db: Session, ids: str, max_part_mb: int = 45) -> io.BytesIO:
+def _build_markdown_export_plan(db: Session, ids: str, max_part_mb: int = 45) -> dict:
     id_list = _parse_id_list(ids)
     if not id_list:
         raise HTTPException(400, "No valid task IDs")
@@ -200,28 +222,72 @@ def batch_download_markdown_tasks_impl(db: Session, ids: str, max_part_mb: int =
     if not tasks:
         raise HTTPException(400, "No completed tasks found")
 
-    entries: list[tuple[FileTask, str]] = []
+    used: set[str] = set()
+    files: list[dict] = []
+    zip_files: list[dict] = []
+    skipped = 0
     for task in tasks:
-        if task.output_path and os.path.exists(task.output_path):
-            md_path = _find_markdown_output(task.output_path)
-            if md_path:
-                entries.append((task, md_path))
-    if not entries:
+        if not task.output_path or not os.path.exists(task.output_path):
+            skipped += 1
+            continue
+        md_path = _find_markdown_output(task.output_path)
+        if not md_path:
+            skipped += 1
+            continue
+        with open(md_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        arc_name = _unique_archive_name(_archive_markdown_name(task), used)
+        parts = _split_markdown(content, max_bytes)
+        root, ext = os.path.splitext(arc_name)
+        archive_files: list[str] = []
+        markdown_bytes = 0
+        for idx, part in enumerate(parts, start=1):
+            part_name = arc_name if len(parts) == 1 else f"{root}.part{idx:02d}{ext}"
+            part_bytes = _byte_len(part)
+            archive_files.append(part_name)
+            markdown_bytes += part_bytes
+            zip_files.append({"path": part_name, "content": part})
+        files.append({
+            "task_id": task.id,
+            "original_filename": task.original_filename,
+            "archive_files": archive_files,
+            "markdown_bytes": markdown_bytes,
+            "parts": len(parts),
+            "split": len(parts) > 1,
+            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+        })
+    if not files:
         raise HTTPException(404, "No Markdown outputs found on disk")
 
-    used: set[str] = set()
+    total_parts = sum(item["parts"] for item in files)
+    total_bytes = sum(item["markdown_bytes"] for item in files)
+    return {
+        "selected_tasks": len(id_list),
+        "completed_tasks": len(tasks),
+        "exported_tasks": len(files),
+        "skipped_tasks": skipped,
+        "max_part_mb": max_part_mb,
+        "max_part_bytes": max_bytes,
+        "total_markdown_bytes": total_bytes,
+        "total_parts": total_parts,
+        "manifest_name": "manifest.json",
+        "files": files,
+        "_zip_files": zip_files,
+    }
+
+
+def estimate_markdown_export_impl(db: Session, ids: str, max_part_mb: int = 45) -> dict:
+    plan = _build_markdown_export_plan(db, ids, max_part_mb)
+    return {k: v for k, v in plan.items() if not k.startswith("_")}
+
+
+def batch_download_markdown_tasks_impl(db: Session, ids: str, max_part_mb: int = 45) -> io.BytesIO:
+    plan = _build_markdown_export_plan(db, ids, max_part_mb)
+    manifest = {k: v for k, v in plan.items() if not k.startswith("_")}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for task, md_path in entries:
-            with open(md_path, "r", encoding="utf-8", errors="ignore") as f:
-                content = f.read()
-            arc_name = _unique_archive_name(_archive_markdown_name(task), used)
-            parts = _split_markdown(content, max_bytes)
-            if len(parts) == 1:
-                zf.writestr(arc_name, parts[0])
-                continue
-            root, ext = os.path.splitext(arc_name)
-            for idx, part in enumerate(parts, start=1):
-                zf.writestr(f"{root}.part{idx:02d}{ext}", part)
+        zf.writestr(plan["manifest_name"], json.dumps(manifest, ensure_ascii=False, indent=2))
+        for item in plan["_zip_files"]:
+            zf.writestr(item["path"], item["content"])
     buf.seek(0)
     return buf

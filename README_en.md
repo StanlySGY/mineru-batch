@@ -83,8 +83,10 @@ make prod
 - Export only `.md` files and filter images / json / zip intermediate artifacts.
 - Preserve upload-time relative directory structure.
 - Convert `xxx.pdf` to `xxx.md` inside the ZIP.
-- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default.
-- API usage: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.
+- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default, preferring heading and paragraph boundaries.
+- Include `manifest.json` with exported tasks, part names, Markdown sizes, and skipped items.
+- Estimate before download: `GET /api/tasks/batch/estimate-markdown?ids=1,2,3&max_part_mb=45`.
+- Download API: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.
 
 ## Quick Start
 

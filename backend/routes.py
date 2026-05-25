@@ -47,7 +47,7 @@ from services.report_service import get_stats_impl, get_quality_report_impl, get
 from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
 from services.batch_service import (
     batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl,
-    batch_download_tasks_impl, batch_download_markdown_tasks_impl,
+    batch_download_tasks_impl, batch_download_markdown_tasks_impl, estimate_markdown_export_impl,
 )
 from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
 from services.task_management_service import delete_task_impl, update_task_impl
@@ -813,6 +813,15 @@ async def batch_download_tasks(ids: str = Query(..., description="comma-separate
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=mineru_batch_results.zip"},
     )
+
+
+@router.get("/tasks/batch/estimate-markdown")
+async def estimate_markdown_export(
+    ids: str = Query(..., description="comma-separated task IDs"),
+    max_part_mb: int = Query(45, ge=1, le=50),
+    db: Session = Depends(get_db),
+):
+    return estimate_markdown_export_impl(db, ids, max_part_mb)
 
 
 @router.get("/tasks/batch/download-markdown")

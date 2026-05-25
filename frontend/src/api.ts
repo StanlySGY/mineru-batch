@@ -210,6 +210,27 @@ export interface BatchProgressReport {
   items: { batch_id: string; batch_name: string | null; total: number; pending: number; processing: number; completed: number; failed: number; progress: number; latest_at: string | null }[]
 }
 
+export interface MarkdownExportEstimate {
+  selected_tasks: number
+  completed_tasks: number
+  exported_tasks: number
+  skipped_tasks: number
+  max_part_mb: number
+  max_part_bytes: number
+  total_markdown_bytes: number
+  total_parts: number
+  manifest_name: string
+  files: {
+    task_id: number
+    original_filename: string
+    archive_files: string[]
+    markdown_bytes: number
+    parts: number
+    split: boolean
+    completed_at: string | null
+  }[]
+}
+
 export interface NodeHealthReport {
   total: number
   healthy: number
@@ -434,6 +455,13 @@ export const api = {
 
   batchDownloadUrl(ids: number[]) {
     return apiUrl(`/tasks/batch/download?ids=${ids.join(',')}`)
+  },
+
+  async estimateMarkdownExport(ids: number[], maxPartMb = 45) {
+    const { data } = await http.get('/tasks/batch/estimate-markdown', {
+      params: { ids: ids.join(','), max_part_mb: maxPartMb },
+    })
+    return data as MarkdownExportEstimate
   },
 
   batchMarkdownDownloadUrl(ids: number[], maxPartMb = 45) {
