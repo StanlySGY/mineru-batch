@@ -451,12 +451,21 @@ function handleBatchDownload() {
   document.body.removeChild(a)
 }
 
-function handleBatchMarkdownDownload() {
+async function handleBatchMarkdownDownload() {
   const ids = selectedIds.value.filter(id => {
     const t = tasks.value.find(r => r.id === id)
     return t && t.status === 'completed'
   })
   if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
+  try {
+    await ElMessageBox.confirm(
+      `将导出 ${ids.length} 个已完成任务的 Markdown-only ZIP，仅包含 .md 文件，保留目录结构，超过 45MB 自动分片。`,
+      '导出 easy-dataset 包',
+      { confirmButtonText: '导出', cancelButtonText: '取消', type: 'info' },
+    )
+  } catch {
+    return
+  }
   const a = document.createElement('a')
   a.href = api.batchMarkdownDownloadUrl(ids)
   a.download = ''
@@ -734,9 +743,11 @@ function checkMobile() {
         <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
           下载选中
         </el-button>
-        <el-button v-if="selectedHasDownloadable" type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
-          easy-dataset 包
-        </el-button>
+        <el-tooltip v-if="selectedHasDownloadable" content="仅导出 Markdown，保留目录结构，适合导入 easy-dataset" placement="top">
+          <el-button type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
+            easy-dataset 包
+          </el-button>
+        </el-tooltip>
         <el-divider v-if="selectedIds.length" direction="vertical" />
         <el-button size="small" plain :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-button>
         <el-button size="small" plain :icon="Switch" @click="handleConvertAllDocs">转换当前页文档</el-button>
