@@ -13,11 +13,12 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules/@element-plus/icons-vue')) return 'element-icons'
-          if (id.includes('node_modules/element-plus/es/components/form')) return 'element-form'
-          if (id.includes('node_modules/element-plus/es/components/data')) return 'element-data'
-          if (id.includes('node_modules/element-plus/es/components/navigation')) return 'element-nav'
-          if (id.includes('node_modules/element-plus/es/components/feedback')) return 'element-fb'
-          if (id.includes('node_modules/element-plus')) return 'element-plus'
+          const elementComponentMatch = id.match(/node_modules\/element-plus\/es\/components\/([^/]+)/)
+          if (elementComponentMatch) return `element-${elementComponentMatch[1]}`
+          if (id.includes('node_modules/element-plus/es/hooks')) return 'element-hooks'
+          if (id.includes('node_modules/element-plus/es/utils')) return 'element-utils'
+          if (id.includes('node_modules/element-plus/es/tokens')) return 'element-utils'
+          if (id.includes('node_modules/element-plus')) return 'element-core'
           if (id.includes('node_modules/echarts/lib/chart')) return 'echarts-chart'
           if (id.includes('node_modules/echarts')) return 'echarts-core'
           if (id.includes('node_modules/highlight.js')) return 'highlight'
