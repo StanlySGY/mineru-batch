@@ -25,6 +25,17 @@ function showApiUnavailableOnce() {
   ElMessage.warning('后端服务未连接，仅可预览界面')
 }
 
+function markApiUnavailable() {
+  window.__apiUnavailable = true
+  showApiUnavailableOnce()
+}
+
+function isCoreApiNotFound(err: any) {
+  if (err.response?.status !== 404) return false
+  const url = String(err.config?.url || '')
+  return ['/stats', '/security/status', '/concurrency', '/tasks/events'].some(path => url === path || url.startsWith(`${path}?`))
+}
+
 http.interceptors.request.use((config) => {
   const key = getStoredAdminKey()
   if (key) config.headers = AxiosHeaders.from(config.headers).set('X-Admin-Api-Key', key)
@@ -36,7 +47,7 @@ http.interceptors.response.use(
     const contentType = String(res.headers?.['content-type'] || '')
     const body = typeof res.data === 'string' ? res.data.trimStart().toLowerCase() : ''
     if (contentType.includes('text/html') || body.startsWith('<!doctype html') || body.startsWith('<html')) {
-      showApiUnavailableOnce()
+      markApiUnavailable()
       return Promise.reject(new Error('API returned HTML fallback'))
     }
     return res
@@ -46,9 +57,9 @@ http.interceptors.response.use(
       showApiUnavailableOnce()
     } else {
       const status = err.response.status
-      // 404 是预期的（后端未部署），不显示错误
+      // 404 是预期的（后端未部署），核心接口 404 时进入静态预览模式
       if (status === 404) {
-        // 静默处理
+        if (isCoreApiNotFound(err)) markApiUnavailable()
       } else if (status === 500) {
         ElMessage.error('服务器内部错误')
       } else if (status === 413) {
@@ -66,6 +77,7 @@ http.interceptors.response.use(
 declare global {
   interface Window {
     __apiErrorShown?: boolean
+    __apiUnavailable?: boolean
   }
 }
 
@@ -514,7 +526,7 @@ export const api = {
     }
 
     function connect() {
-      if (stopped) return
+      if (stopped || window.__apiUnavailable) return
       es = new EventSource(apiUrl('/tasks/events'))
       es.onopen = () => {
         reconnectAttempts = 0
@@ -535,7 +547,7 @@ export const api = {
         onStatusChange?.(false)
         wasDisconnected = true
         es?.close()
-        if (stopped) return
+        if (stopped || window.__apiUnavailable) return
         if (reconnectAttempts >= MAX_RECONNECT) return
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000)
         reconnectAttempts++
