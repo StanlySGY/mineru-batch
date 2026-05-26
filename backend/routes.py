@@ -11,7 +11,7 @@ import traceback
 import asyncio
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 import aiofiles
 import httpx
 import html
@@ -316,6 +316,20 @@ def _sanitize_filename(name: str) -> str:
     name = re.sub(r'[^\w\-.\u4e00-\u9fff]', '_', name)
     name = re.sub(r'_+', '_', name).strip('_')
     return name or 'output'
+
+
+def _content_disposition(filename: str) -> str:
+    fallback = re.sub(r'[^A-Za-z0-9_.-]+', '_', filename)
+    fallback = re.sub(r'_+', '_', fallback).strip('_.') or 'download.zip'
+    return f"attachment; filename={fallback}; filename*=UTF-8''{quote(filename, safe='')}"
+
+
+def _markdown_export_filename(db: Session, batch_id: str | None) -> str:
+    if not batch_id:
+        return 'easy_dataset_markdown.zip'
+    row = db.query(FileTask.batch_name).filter(FileTask.batch_id == batch_id, FileTask.batch_name.isnot(None)).first()
+    label = row[0] if row and row[0] else batch_id
+    return f"easy_dataset_markdown_{_sanitize_filename(label)}.zip"
 
 
 def _save_upload(file: UploadFile) -> tuple[str, str]:
@@ -831,10 +845,11 @@ async def batch_download_markdown_tasks(
     db: Session = Depends(get_db),
 ):
     buf = batch_download_markdown_tasks_impl(db, ids=ids, batch_id=batch_id, max_part_mb=max_part_mb, include_manifest=include_manifest)
+    filename = _markdown_export_filename(db, batch_id)
     return StreamingResponse(
         buf,
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=easy_dataset_markdown.zip"},
+        headers={"Content-Disposition": _content_disposition(filename)},
     )
 
 

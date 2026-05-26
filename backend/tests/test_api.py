@@ -317,9 +317,9 @@ class TestBatchOperations:
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
         db_session.add_all([
-            FileTask(original_filename="docs/a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_a, batch_id="batch-1"),
-            FileTask(original_filename="docs/b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_b, batch_id="batch-1"),
-            FileTask(original_filename="docs/pending.pdf", saved_filename="pending.pdf", file_path="/tmp/pending.pdf", status=TaskStatus.PENDING, output_format=OutputFormat.MD, output_path=out_pending, batch_id="batch-1"),
+            FileTask(original_filename="docs/a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_a, batch_id="batch-1", batch_name="资料 批次/2026"),
+            FileTask(original_filename="docs/b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_b, batch_id="batch-1", batch_name="资料 批次/2026"),
+            FileTask(original_filename="docs/pending.pdf", saved_filename="pending.pdf", file_path="/tmp/pending.pdf", status=TaskStatus.PENDING, output_format=OutputFormat.MD, output_path=out_pending, batch_id="batch-1", batch_name="资料 批次/2026"),
             FileTask(original_filename="docs/other.pdf", saved_filename="other.pdf", file_path="/tmp/other.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_other, batch_id="batch-2"),
         ])
         db_session.commit()
@@ -327,6 +327,9 @@ class TestBatchOperations:
         resp = client.get("/api/tasks/batch/download-markdown", params={"batch_id": "batch-1"})
 
         assert resp.status_code == 200
+        content_disposition = resp.headers["content-disposition"]
+        assert "filename=easy_dataset_markdown_2026.zip" in content_disposition
+        assert "filename*=UTF-8''easy_dataset_markdown_%E8%B5%84%E6%96%99_%E6%89%B9%E6%AC%A1_2026.zip" in content_disposition
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             names = zf.namelist()
             assert names == ["docs/a.md", "docs/b.md"]
