@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from models import (
-    FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, AppSetting,
+    Batch, FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, AppSetting,
     get_db, SessionLocal, add_log,
 )
 from error_codes import ErrorCode, with_code
@@ -327,8 +327,16 @@ def _content_disposition(filename: str) -> str:
 def _markdown_export_filename(db: Session, batch_id: str | None) -> str:
     if not batch_id:
         return 'easy_dataset_markdown.zip'
-    row = db.query(FileTask.batch_name).filter(FileTask.batch_id == batch_id, FileTask.batch_name.isnot(None)).first()
-    label = row[0] if row and row[0] else batch_id
+    batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
+    if batch and batch.name:
+        label = batch.name
+    else:
+        row = db.query(FileTask.batch_name).filter(
+            FileTask.batch_id == batch_id,
+            FileTask.batch_name.isnot(None),
+            FileTask.batch_name != "",
+        ).order_by(FileTask.id.asc()).first()
+        label = row[0] if row and row[0] else batch_id
     return f"easy_dataset_markdown_{_sanitize_filename(label)}.zip"
 
 
@@ -692,6 +700,32 @@ async def get_failure_categories(db: Session = Depends(get_db)):
 @router.get("/reports/batches")
 async def get_batch_progress(batch_id: str | None = Query(None, description="batch ID"), db: Session = Depends(get_db)):
     return get_batch_progress_impl(db, batch_id=batch_id)
+
+
+@router.get("/batches")
+async def list_batches(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
+    return get_batch_progress_impl(db, limit=limit)
+
+
+@router.get("/batches/{batch_id}")
+async def get_batch(batch_id: str, db: Session = Depends(get_db)):
+    report = get_batch_progress_impl(db, limit=1, batch_id=batch_id)
+    if report["items"]:
+        return report["items"][0]
+    batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    return {
+        "batch_id": batch.batch_id,
+        "batch_name": batch.name,
+        "total": 0,
+        "pending": 0,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+        "progress": 0,
+        "latest_at": batch.updated_at.isoformat() if batch.updated_at else None,
+    }
 
 
 @router.get("/tasks/events")

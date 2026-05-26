@@ -5,9 +5,10 @@ import json
 
 import aiofiles
 from fastapi import UploadFile, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from models import FileTask, OutputFormat, add_log
+from models import Batch, FileTask, OutputFormat, add_log
 
 
 MAX_FILE_SIZE = 200 * 1024 * 1024
@@ -55,9 +56,36 @@ def validate_upload_params(
 
 def prepare_batch_info(batch_id: str | None, batch_name: str | None) -> tuple[str, str | None]:
     """Return normalized (batch_id, batch_name)."""
-    upload_batch_id = (batch_id or uuid.uuid4().hex).strip()[:64]
+    clean_batch_id = (batch_id or "").strip()
+    upload_batch_id = (clean_batch_id or uuid.uuid4().hex)[:64]
     upload_batch_name = (batch_name or "").strip()[:256] or None
     return upload_batch_id, upload_batch_name
+
+
+def upsert_batch(db: Session, batch_id: str, batch_name: str | None) -> Batch:
+    batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
+    if batch:
+        if not batch.name and batch_name:
+            batch.name = batch_name
+            db.commit()
+            db.refresh(batch)
+        return batch
+    try:
+        batch = Batch(batch_id=batch_id, name=batch_name)
+        db.add(batch)
+        db.commit()
+        db.refresh(batch)
+        return batch
+    except IntegrityError:
+        db.rollback()
+        batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
+        if not batch:
+            raise
+        if not batch.name and batch_name:
+            batch.name = batch_name
+            db.commit()
+            db.refresh(batch)
+        return batch
 
 
 def parse_relative_paths(relative_paths: str | None) -> list:
@@ -227,13 +255,18 @@ async def upload_files_impl(
     results = []
     rel_paths = parse_relative_paths(relative_paths)
 
-    for idx, file in enumerate(files):
+    for file in files:
         ext = os.path.splitext(file.filename or "")[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(400, f"不支持的文件类型: {ext}，允许: {', '.join(sorted(ALLOWED_EXTENSIONS))}")
 
+    batch_upserted = False
+    for idx, file in enumerate(files):
         saved_name, save_path = generate_save_path(file, upload_dir)
         file_size = await save_upload_stream(file, save_path)
+        if not batch_upserted:
+            upsert_batch(db, upload_batch_id, upload_batch_name)
+            batch_upserted = True
 
         original_name = normalize_relative_name(rel_paths[idx] if idx < len(rel_paths) else None, file.filename or saved_name)
 

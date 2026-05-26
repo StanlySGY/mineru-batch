@@ -53,6 +53,8 @@ const statusSummary = computed(() => {
 type BatchProgressEntry = BatchProgressReport['items'][number]
 const currentBatchStats = ref<BatchProgressEntry | null>(null)
 const currentBatchStatsLoading = ref(false)
+const currentBatchTitle = computed(() => currentBatchStats.value?.batch_name || filterBatchId.value)
+const currentBatchIdHint = computed(() => currentBatchStats.value?.batch_name ? filterBatchId.value : '')
 const currentBatchHasFailed = computed(() => (currentBatchStats.value?.failed || 0) > 0)
 const currentBatchHasCompleted = computed(() => (currentBatchStats.value?.completed || 0) > 0)
 const currentBatchReadyToExport = computed(() => {
@@ -832,7 +834,8 @@ function checkMobile() {
   <template v-else>
   <div v-if="filterBatchId" class="batch-filter-bar" :class="{ 'is-ready': currentBatchReadyToExport }">
     <div class="batch-filter-main">
-      <el-tag type="primary" effect="plain">当前批次：{{ filterBatchId }}</el-tag>
+      <el-tag type="primary" effect="plain">当前批次：{{ currentBatchTitle }}</el-tag>
+      <span v-if="currentBatchIdHint" class="batch-filter-id">ID: {{ currentBatchIdHint }}</span>
       <template v-if="currentBatchStats">
         <el-tag type="success" size="small" effect="plain">已完成 {{ currentBatchStats.completed }}</el-tag>
         <el-tag type="danger" size="small" effect="plain">失败 {{ currentBatchStats.failed }}</el-tag>
@@ -1193,6 +1196,7 @@ function checkMobile() {
 }
 .batch-filter-bar.is-ready { border-color: #b3e19d; background: #f0f9eb; }
 .batch-filter-main, .batch-filter-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.batch-filter-id { font-size: 12px; color: #909399; }
 .batch-filter-hint { font-size: 13px; color: #606266; }
 .live-timer { color: #e6a23c; font-variant-numeric: tabular-nums; }
 .card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

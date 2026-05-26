@@ -28,6 +28,23 @@ class LogLevel(str, enum.Enum):
     ERROR = "error"
 
 
+class Batch(Base):
+    __tablename__ = "batches"
+
+    batch_id = Column(String(64), primary_key=True)
+    name = Column(String(256), nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "batch_id": self.batch_id,
+            "batch_name": self.name,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class FileTask(Base):
     __tablename__ = "file_tasks"
 
@@ -156,9 +173,41 @@ def _ensure_compatible_schema():
             conn.execute(text("ALTER TABLE file_tasks ADD COLUMN priority INTEGER DEFAULT 0"))
 
 
+def _first_task_batch_name(db, batch_id: str) -> str | None:
+    row = db.query(FileTask.batch_name).filter(
+        FileTask.batch_id == batch_id,
+        FileTask.batch_name.isnot(None),
+        FileTask.batch_name != "",
+    ).order_by(FileTask.id.asc()).first()
+    return row[0] if row else None
+
+
+def _backfill_batches_from_tasks():
+    db = SessionLocal()
+    try:
+        batch_ids = [row[0] for row in db.query(FileTask.batch_id).filter(
+            FileTask.batch_id.isnot(None),
+            FileTask.batch_id != "",
+        ).distinct().all()]
+        for batch_id in batch_ids:
+            name = _first_task_batch_name(db, batch_id)
+            batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
+            if not batch:
+                db.add(Batch(batch_id=batch_id, name=name))
+            elif not batch.name and name:
+                batch.name = name
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     _ensure_compatible_schema()
+    _backfill_batches_from_tasks()
 
 
 def get_db():

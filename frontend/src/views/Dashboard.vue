@@ -93,7 +93,7 @@ async function loadStats() {
       api.getQualityReport().catch(() => null),
       api.getQueueStatus().catch(() => null),
       api.getFailureCategories().catch(() => null),
-      api.getBatchProgress().catch(() => null),
+      api.getBatches().catch(() => null),
       api.getNodeHealth().catch(() => null),
     ])
     stats.value = statsRes
@@ -295,7 +295,7 @@ onUnmounted(() => {
           <span class="card-title">批次进度</span>
         </template>
         <div class="batch-list">
-          <div v-for="batch in batchItems.slice(0, 4)" :key="batch.batch_id" class="batch-item" @click="router.push(`/tasks?batch_id=${batch.batch_id}`)">
+          <div v-for="batch in batchItems.slice(0, 4)" :key="batch.batch_id" class="batch-item" @click="router.push({ path: '/tasks', query: { batch_id: batch.batch_id } })">
             <div class="batch-title"><span>{{ batch.batch_name || batch.batch_id }}</span><strong>{{ batch.progress }}%</strong></div>
             <el-progress :percentage="batch.progress" :stroke-width="8" />
             <small>共 {{ batch.total }} · 完成 {{ batch.completed }} · 失败 {{ batch.failed }}</small>

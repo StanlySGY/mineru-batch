@@ -205,9 +205,21 @@ export interface FailureCategories {
   items: { category: string; count: number }[]
 }
 
+export interface BatchItem {
+  batch_id: string
+  batch_name: string | null
+  total: number
+  pending: number
+  processing: number
+  completed: number
+  failed: number
+  progress: number
+  latest_at: string | null
+}
+
 export interface BatchProgressReport {
   total: number
-  items: { batch_id: string; batch_name: string | null; total: number; pending: number; processing: number; completed: number; failed: number; progress: number; latest_at: string | null }[]
+  items: BatchItem[]
 }
 
 export interface NodeHealthReport {
@@ -297,6 +309,16 @@ export const api = {
   async getBatchProgress(batchId?: string) {
     const { data } = await http.get('/reports/batches', { params: batchId ? { batch_id: batchId } : undefined })
     return data as BatchProgressReport
+  },
+
+  async getBatches(limit = 20) {
+    const { data } = await http.get('/batches', { params: { limit } })
+    return data as BatchProgressReport
+  },
+
+  async getBatch(batchId: string) {
+    const { data } = await http.get(`/batches/${encodeURIComponent(batchId)}`)
+    return data as BatchItem
   },
 
   async getNodeHealth() {

@@ -2,19 +2,36 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from models import FileTask
+from models import Batch, FileTask
+
+
+def _fallback_batch_names(db: Session, batch_ids: list[str]) -> dict[str, str]:
+    names = {}
+    if not batch_ids:
+        return names
+    rows = db.query(FileTask.batch_id, FileTask.batch_name, FileTask.id).filter(
+        FileTask.batch_id.in_(batch_ids),
+        FileTask.batch_name.isnot(None),
+        FileTask.batch_name != "",
+    ).order_by(FileTask.id.asc()).all()
+    for batch_id, batch_name, _ in rows:
+        names.setdefault(batch_id, batch_name)
+    return names
 
 
 def get_batch_progress_impl(db: Session, limit: int = 20, batch_id: str | None = None) -> dict:
-    query = db.query(FileTask.batch_id, FileTask.batch_name, FileTask.status, func.count(FileTask.id), func.max(FileTask.created_at)).filter(FileTask.batch_id.isnot(None))
+    query = db.query(FileTask.batch_id, FileTask.status, func.count(FileTask.id), func.max(FileTask.created_at)).filter(FileTask.batch_id.isnot(None))
     if batch_id:
         query = query.filter(FileTask.batch_id == batch_id)
-    rows = query.group_by(FileTask.batch_id, FileTask.batch_name, FileTask.status).all()
+    rows = query.group_by(FileTask.batch_id, FileTask.status).all()
+    batch_ids = list({row[0] for row in rows if row[0]})
+    canonical_names = {batch.batch_id: batch.name for batch in db.query(Batch).filter(Batch.batch_id.in_(batch_ids)).all()} if batch_ids else {}
+    fallback_names = _fallback_batch_names(db, batch_ids)
     batches: dict[str, dict] = {}
-    for batch_id, batch_name, status, count, latest in rows:
+    for batch_id, status, count, latest in rows:
         item = batches.setdefault(batch_id, {
             "batch_id": batch_id,
-            "batch_name": batch_name,
+            "batch_name": canonical_names.get(batch_id) or fallback_names.get(batch_id),
             "total": 0,
             "pending": 0,
             "processing": 0,

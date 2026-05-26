@@ -3,10 +3,9 @@ import io
 import asyncio
 import zipfile
 from unittest.mock import patch, MagicMock
-from models import FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel
+from models import Batch, FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, _backfill_batches_from_tasks
 
 MINIMAL_PDF = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\nxref\n0 3\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \ntrailer<</Size 3/Root 1 0 R>>\nstartxref\n109\n%%EOF"
-from models import FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel
 
 
 def _upload_form(overrides=None):
@@ -47,6 +46,19 @@ class TestUpload:
         assert {t["batch_id"] for t in tasks} == {"batch-1"}
         assert {t["batch_name"] for t in tasks} == {"测试批次"}
         assert all("api_key" not in t for t in tasks)
+
+    def test_upload_creates_batch(self, client, db_session):
+        with patch("routes._enqueue_task"):
+            resp = client.post("/api/upload",
+                files=[("files", ("test.pdf", MINIMAL_PDF, "application/pdf"))],
+                data={**_upload_form(), "batch_id": "batch-created", "batch_name": "规范批次"})
+        assert resp.status_code == 200
+        batch = db_session.query(Batch).filter(Batch.batch_id == "batch-created").first()
+        assert batch is not None
+        assert batch.name == "规范批次"
+        task = db_session.query(FileTask).filter(FileTask.batch_id == "batch-created").first()
+        assert task.batch_name == "规范批次"
+
     def test_upload_uses_server_settings_api_key(self, client, db_session):
         client.put("/api/settings", json={
             "defaults": {},
@@ -212,6 +224,55 @@ class TestStatsAndLogs:
         assert data["items"][0]["batch_id"] == "b2"
         assert data["items"][0]["failed"] == 1
 
+    def test_batch_progress_uses_canonical_batch_name(self, client, db_session):
+        db_session.add(Batch(batch_id="b1", name="规范名称"))
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, batch_id="b1", batch_name="旧名称 A"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, batch_id="b1", batch_name="旧名称 B"),
+        ])
+        db_session.commit()
+        data = client.get("/api/reports/batches", params={"batch_id": "b1"}).json()
+        assert data["total"] == 1
+        item = data["items"][0]
+        assert item["batch_name"] == "规范名称"
+        assert item["completed"] == 1
+        assert item["failed"] == 1
+
+    def test_batch_progress_falls_back_to_first_task_name(self, client, db_session):
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, batch_id="b1", batch_name="第一个名称"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, batch_id="b1", batch_name="第二个名称"),
+        ])
+        db_session.commit()
+        data = client.get("/api/reports/batches", params={"batch_id": "b1"}).json()
+        assert data["total"] == 1
+        assert data["items"][0]["batch_name"] == "第一个名称"
+
+    def test_backfill_batches_from_legacy_tasks(self, client, db_session):
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, batch_id="legacy", batch_name="历史批次"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, batch_id="legacy", batch_name="其他名称"),
+        ])
+        db_session.commit()
+        _backfill_batches_from_tasks()
+        batch = db_session.query(Batch).filter(Batch.batch_id == "legacy").first()
+        assert batch is not None
+        assert batch.name == "历史批次"
+
+    def test_batch_endpoints(self, client, db_session):
+        db_session.add(Batch(batch_id="b1", name="接口批次"))
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, batch_id="b1"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.PENDING, output_format=OutputFormat.MD, batch_id="b1"),
+        ])
+        db_session.commit()
+        list_data = client.get("/api/batches").json()
+        detail = client.get("/api/batches/b1").json()
+        assert list_data["total"] == 1
+        assert detail["batch_id"] == "b1"
+        assert detail["batch_name"] == "接口批次"
+        assert detail["total"] == 2
+        assert detail["progress"] == 50.0
 
 class TestBatchOperations:
     def test_batch_delete(self, client, sample_task, db_session):
@@ -335,6 +396,25 @@ class TestBatchOperations:
             assert names == ["docs/a.md", "docs/b.md"]
             assert zf.read("docs/a.md").decode() == "# A"
             assert zf.read("docs/b.md").decode() == "# B"
+
+    def test_batch_download_markdown_filename_uses_batch_name(self, client, db_session, tmp_dirs):
+        out_path = os.path.join(tmp_dirs["output"], "canonical.md")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write("# Canonical")
+        db_session.add(Batch(batch_id="batch-1", name="规范 批次/2026"))
+        db_session.add(FileTask(
+            original_filename="docs/a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf",
+            status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_path,
+            batch_id="batch-1", batch_name="旧名称",
+        ))
+        db_session.commit()
+
+        resp = client.get("/api/tasks/batch/download-markdown", params={"batch_id": "batch-1"})
+
+        assert resp.status_code == 200
+        content_disposition = resp.headers["content-disposition"]
+        assert "filename=easy_dataset_markdown_2026.zip" in content_disposition
+        assert "filename*=UTF-8''easy_dataset_markdown_%E8%A7%84%E8%8C%83_%E6%89%B9%E6%AC%A1_2026.zip" in content_disposition
 
     def test_batch_download_markdown_splits_large_file(self, client, db_session, tmp_dirs):
         out_path = os.path.join(tmp_dirs["output"], "large.md")
