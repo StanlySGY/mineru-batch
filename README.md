@@ -26,7 +26,7 @@ MinerU Batch 用于把大量 PDF、图片和 Office 文档批量解析为 Markdo
 ## 核心能力
 
 - **easy-dataset 专用导出**：一键导出 Markdown-only ZIP，自动过滤 images、json、zip 等中间产物。
-- **大文件分片**：单个 Markdown 默认按 45MB 拆分，规避 easy-dataset 约 50MB 的导入限制。
+- **大文件分片**：单个 Markdown 默认按 45MB 拆分，导出前可按 easy-dataset 实际限制调整为 1–50MB。
 - **文件夹批量上传**：支持拖拽文件夹，自动识别文件并保留相对路径。
 - **解析场景预设**：上传时可选择 easy-dataset / 学术论文 / 纯文本 / 扫描件 OCR 等预设。
 - **多节点负载均衡**：配置多个 MinerU 服务节点，按 Round-Robin 分配解析任务。
@@ -83,7 +83,7 @@ make prod
 - 仅导出 `.md` 文件，自动过滤 images / json / zip 等中间产物。
 - 保留上传时的相对目录结构，便于按原资料目录组织数据集。
 - `xxx.pdf` 自动导出为 `xxx.md`。
-- 单个 Markdown 默认按 45MB 拆分为 `xxx.part01.md`、`xxx.part02.md`，优先按标题和段落边界切分。
+- 单个 Markdown 默认按 45MB 拆分为 `xxx.part01.md`、`xxx.part02.md`，导出前可在任务页调整为 1–50MB，优先按标题和段落边界切分。
 - ZIP 内包含 `manifest.json`，记录导出任务、分片文件名、Markdown 大小和跳过项。
 - 导出前可预估：`GET /api/tasks/batch/estimate-markdown?ids=1,2,3&max_part_mb=45`。
 - 下载 API：`GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`。

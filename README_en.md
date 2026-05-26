@@ -26,7 +26,7 @@ MinerU Batch converts large batches of PDFs, images, and Office documents into M
 ## Core Capabilities
 
 - **easy-dataset export**: Export a Markdown-only ZIP and filter images, json, zip, and other intermediate artifacts.
-- **Large file splitting**: Split each Markdown file at 45MB by default to stay below the roughly 50MB easy-dataset import limit.
+- **Large file splitting**: Split each Markdown file at 45MB by default, and adjust it to 1–50MB before export based on the actual easy-dataset import limit.
 - **Folder batch upload**: Drag and drop folders, auto-detect supported files, and preserve relative paths.
 - **Parse presets**: Select easy-dataset / Academic / Plain Text / Scanned OCR presets during upload.
 - **Multi-node load balancing**: Configure multiple MinerU service nodes and distribute tasks with Round-Robin scheduling.
@@ -83,7 +83,7 @@ make prod
 - Export only `.md` files and filter images / json / zip intermediate artifacts.
 - Preserve upload-time relative directory structure.
 - Convert `xxx.pdf` to `xxx.md` inside the ZIP.
-- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default, preferring heading and paragraph boundaries.
+- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default, adjustable to 1–50MB on the task page before export, preferring heading and paragraph boundaries.
 - Include `manifest.json` with exported tasks, part names, Markdown sizes, and skipped items.
 - Estimate before download: `GET /api/tasks/batch/estimate-markdown?ids=1,2,3&max_part_mb=45`.
 - Download API: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.

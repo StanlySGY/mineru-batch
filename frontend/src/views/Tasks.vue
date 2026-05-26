@@ -42,6 +42,7 @@ function stopClock() {
 }
 
 const selectedIds = ref<number[]>([])
+const markdownMaxPartMb = ref(45)
 const tableRef = ref<InstanceType<typeof import('element-plus')['ElTable']> | null>(null)
 
 const statusSummary = computed(() => {
@@ -457,7 +458,7 @@ async function handleBatchMarkdownDownload() {
     return t && t.status === 'completed'
   })
   if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
-  const maxPartMb = 45
+  const maxPartMb = markdownMaxPartMb.value
   let estimate
   try {
     estimate = await api.estimateMarkdownExport(ids, maxPartMb)
@@ -753,6 +754,11 @@ function checkMobile() {
         <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
           下载选中
         </el-button>
+        <div v-if="selectedHasDownloadable" class="markdown-export-size">
+          <span>分片</span>
+          <el-input-number v-model="markdownMaxPartMb" :min="1" :max="50" :step="5" :precision="0" size="small" controls-position="right" />
+          <span>MB</span>
+        </div>
         <el-tooltip v-if="selectedHasDownloadable" content="仅导出 Markdown，保留目录结构，适合导入 easy-dataset" placement="top">
           <el-button type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
             easy-dataset 包
@@ -1109,6 +1115,8 @@ function checkMobile() {
 .live-timer { color: #e6a23c; font-variant-numeric: tabular-nums; }
 .card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .card-header .filter-row { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.markdown-export-size { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #606266; }
+.markdown-export-size :deep(.el-input-number) { width: 92px; }
 .card-title { font-weight: 600; }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }
