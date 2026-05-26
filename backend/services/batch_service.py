@@ -276,17 +276,14 @@ def _build_markdown_export_plan(db: Session, ids: str, max_part_mb: int = 45) ->
     }
 
 
-def estimate_markdown_export_impl(db: Session, ids: str, max_part_mb: int = 45) -> dict:
-    plan = _build_markdown_export_plan(db, ids, max_part_mb)
-    return {k: v for k, v in plan.items() if not k.startswith("_")}
 
-
-def batch_download_markdown_tasks_impl(db: Session, ids: str, max_part_mb: int = 45) -> io.BytesIO:
+def batch_download_markdown_tasks_impl(db: Session, ids: str, max_part_mb: int = 45, include_manifest: bool = False) -> io.BytesIO:
     plan = _build_markdown_export_plan(db, ids, max_part_mb)
     manifest = {k: v for k, v in plan.items() if not k.startswith("_")}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(plan["manifest_name"], json.dumps(manifest, ensure_ascii=False, indent=2))
+        if include_manifest:
+            zf.writestr(plan["manifest_name"], json.dumps(manifest, ensure_ascii=False, indent=2))
         for item in plan["_zip_files"]:
             zf.writestr(item["path"], item["content"])
     buf.seek(0)

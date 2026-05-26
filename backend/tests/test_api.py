@@ -1,6 +1,5 @@
 import os
 import io
-import json
 import asyncio
 import zipfile
 from unittest.mock import patch, MagicMock
@@ -260,11 +259,7 @@ class TestBatchOperations:
         assert resp.status_code == 200
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             names = zf.namelist()
-            assert names == ["manifest.json", "docs/a.md"]
-            manifest = json.loads(zf.read("manifest.json").decode())
-            assert manifest["exported_tasks"] == 1
-            assert manifest["total_parts"] == 1
-            assert manifest["files"][0]["archive_files"] == ["docs/a.md"]
+            assert names == ["docs/a.md"]
             assert zf.read("docs/a.md").decode() == "# Hello"
 
     def test_batch_download_markdown_splits_large_file(self, client, db_session, tmp_dirs):
@@ -283,33 +278,8 @@ class TestBatchOperations:
         assert resp.status_code == 200
         with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
             names = zf.namelist()
-            assert names == ["manifest.json", "large.part01.md", "large.part02.md"]
-            manifest = json.loads(zf.read("manifest.json").decode())
-            assert manifest["total_parts"] == 2
-            assert manifest["files"][0]["split"] is True
+            assert names == ["large.part01.md", "large.part02.md"]
             assert len(zf.read("large.part01.md")) <= 1024 * 1024
-
-    def test_estimate_markdown_export(self, client, db_session, tmp_dirs):
-        out_path = os.path.join(tmp_dirs["output"], "estimate.md")
-        with open(out_path, "w", encoding="utf-8") as f:
-            f.write("# Title\n\ncontent")
-        task = FileTask(
-            original_filename="docs/estimate.pdf", saved_filename="estimate.pdf", file_path="/tmp/estimate.pdf",
-            status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_path,
-        )
-        db_session.add(task)
-        db_session.commit()
-
-        resp = client.get("/api/tasks/batch/estimate-markdown", params={"ids": str(task.id)})
-
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["exported_tasks"] == 1
-        assert data["total_parts"] == 1
-        assert data["manifest_name"] == "manifest.json"
-        assert data["files"][0]["archive_files"] == ["docs/estimate.md"]
-        assert "_zip_files" not in data
-
 
 class TestPreviewDownload:
     def test_preview_pending_400(self, client, sample_task):

@@ -42,7 +42,6 @@ function stopClock() {
 }
 
 const selectedIds = ref<number[]>([])
-const markdownMaxPartMb = ref(45)
 const tableRef = ref<InstanceType<typeof import('element-plus')['ElTable']> | null>(null)
 
 const statusSummary = computed(() => {
@@ -458,27 +457,17 @@ async function handleBatchMarkdownDownload() {
     return t && t.status === 'completed'
   })
   if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
-  const maxPartMb = markdownMaxPartMb.value
-  let estimate
-  try {
-    estimate = await api.estimateMarkdownExport(ids, maxPartMb)
-  } catch {
-    return
-  }
-  const sampleFiles = estimate.files.flatMap(file => file.archive_files).slice(0, 5)
-  const skippedText = estimate.skipped_tasks ? `，跳过 ${estimate.skipped_tasks} 个无可用 Markdown 输出` : ''
-  const sampleText = sampleFiles.length ? `\n示例文件：${sampleFiles.join('、')}${estimate.total_parts > sampleFiles.length ? ' ...' : ''}` : ''
   try {
     await ElMessageBox.confirm(
-      `将导出 ${estimate.exported_tasks} 个任务，共 ${estimate.total_parts} 个 Markdown 文件，总大小 ${formatSize(estimate.total_markdown_bytes)}${skippedText}。ZIP 将包含 ${estimate.manifest_name}，保留目录结构，超过 ${estimate.max_part_mb}MB 时优先按标题/段落分片。${sampleText}`,
-      '导出 easy-dataset 包',
+      `将导出 ${ids.length} 个已完成任务的 Markdown ZIP。解压后可直接把 .md 文件拖入 easy-dataset。`,
+      '导出 Markdown',
       { confirmButtonText: '导出', cancelButtonText: '取消', type: 'info' },
     )
   } catch {
     return
   }
   const a = document.createElement('a')
-  a.href = api.batchMarkdownDownloadUrl(ids, maxPartMb)
+  a.href = api.batchMarkdownDownloadUrl(ids)
   a.download = ''
   a.target = '_blank'
   document.body.appendChild(a)
@@ -754,14 +743,9 @@ function checkMobile() {
         <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
           下载选中
         </el-button>
-        <div v-if="selectedHasDownloadable" class="markdown-export-size">
-          <span>分片</span>
-          <el-input-number v-model="markdownMaxPartMb" :min="1" :max="50" :step="5" :precision="0" size="small" controls-position="right" />
-          <span>MB</span>
-        </div>
-        <el-tooltip v-if="selectedHasDownloadable" content="仅导出 Markdown，保留目录结构，适合导入 easy-dataset" placement="top">
+        <el-tooltip v-if="selectedHasDownloadable" content="导出可直接拖入 easy-dataset 的 Markdown 文件" placement="top">
           <el-button type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
-            easy-dataset 包
+            导出 Markdown
           </el-button>
         </el-tooltip>
         <el-divider v-if="selectedIds.length" direction="vertical" />
@@ -1115,8 +1099,6 @@ function checkMobile() {
 .live-timer { color: #e6a23c; font-variant-numeric: tabular-nums; }
 .card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .card-header .filter-row { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.markdown-export-size { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #606266; }
-.markdown-export-size :deep(.el-input-number) { width: 92px; }
 .card-title { font-weight: 600; }
 .pagination-row { display: flex; justify-content: center; margin-top: 16px; }
 .preview-container { max-height: 70vh; overflow-y: auto; padding: 16px; background: #fafafa; border-radius: 8px; border: 1px solid #ebeef5; }

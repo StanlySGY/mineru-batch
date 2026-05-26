@@ -26,7 +26,7 @@ MinerU Batch converts large batches of PDFs, images, and Office documents into M
 ## Core Capabilities
 
 - **easy-dataset export**: Export a Markdown-only ZIP and filter images, json, zip, and other intermediate artifacts.
-- **Large file splitting**: Split each Markdown file at 45MB by default, and adjust it to 1–50MB before export based on the actual easy-dataset import limit.
+- **Large file splitting**: Automatically split Markdown files above the default 45MB threshold to stay below easy-dataset import limits.
 - **Folder batch upload**: Drag and drop folders, auto-detect supported files, and preserve relative paths.
 - **Parse presets**: Select easy-dataset / Academic / Plain Text / Scanned OCR presets during upload.
 - **Multi-node load balancing**: Configure multiple MinerU service nodes and distribute tasks with Round-Robin scheduling.
@@ -74,8 +74,8 @@ make prod
 # 4. Drag and drop a PDF folder
 # The system preserves relative folder structure
 
-# 5. After tasks complete, select them on the task list and click "easy-dataset package"
-# Download the Markdown-only ZIP and import it into easy-dataset
+# 5. After tasks complete, select them on the task list and click "Export Markdown"
+# Unzip the ZIP and drag the .md files directly into easy-dataset
 ```
 
 ### Export Rules
@@ -83,10 +83,9 @@ make prod
 - Export only `.md` files and filter images / json / zip intermediate artifacts.
 - Preserve upload-time relative directory structure.
 - Convert `xxx.pdf` to `xxx.md` inside the ZIP.
-- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default, adjustable to 1–50MB on the task page before export, preferring heading and paragraph boundaries.
-- Include `manifest.json` with exported tasks, part names, Markdown sizes, and skipped items.
-- Estimate before download: `GET /api/tasks/batch/estimate-markdown?ids=1,2,3&max_part_mb=45`.
-- Download API: `GET /api/tasks/batch/download-markdown?ids=1,2,3&max_part_mb=45`.
+- Split a single Markdown file into `xxx.part01.md`, `xxx.part02.md` at 45MB by default, preferring heading and paragraph boundaries.
+- The ZIP contains Markdown files by default, ready to unzip and drag into easy-dataset.
+- Download API: `GET /api/tasks/batch/download-markdown?ids=1,2,3`.
 
 ## Quick Start
 
@@ -165,7 +164,7 @@ bash update-offline.sh mineru-batch-offline-vX.Y.Z.tar.gz
 
 - Search, filter, and paginate tasks.
 - Detail drawer with timeline, MinerU parameters, and error stack.
-- Batch retry, delete, convert, download, and easy-dataset package export.
+- Batch retry, delete, convert, download, and easy-dataset Markdown export.
 - Retry with the original node, another enabled node, or a custom URL.
 - Mobile layout automatically switches to cards.
 
@@ -363,9 +362,9 @@ A: Check whether LibreOffice is installed. Docker deployments include it by defa
 
 A: Add and enable nodes in the Settings page. During upload, you can select which nodes the batch should use; tasks are distributed automatically.
 
-**Q: Why does the easy-dataset package not include images or JSON?**
+**Q: Why does Markdown export not include images or JSON?**
 
-A: This is expected. The easy-dataset package exports Markdown only to reduce import size. Use normal batch download if you need complete artifacts.
+A: This is expected. The export keeps only Markdown files that can be dragged into easy-dataset directly. Use normal batch download if you need complete artifacts.
 
 **Q: Is PostgreSQL supported?**
 
