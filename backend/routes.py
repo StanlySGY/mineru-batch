@@ -794,9 +794,15 @@ async def batch_delete_tasks(ids: str = Query(..., description="comma-separated 
 
 
 @router.post("/tasks/batch/retry")
-async def batch_retry_tasks(ids: str = Query(..., description="comma-separated task IDs"), db: Session = Depends(get_db), _: None = Depends(require_admin)):
-    result = await batch_retry_tasks_impl(db, ids, _safe_remove, _enqueue_task)
-    audit_admin_action("批量重试任务", f"ids={ids}")
+async def batch_retry_tasks(
+    ids: str | None = Query(None, description="comma-separated task IDs"),
+    batch_id: str | None = Query(None, description="batch ID"),
+    failed_only: bool = Query(False),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+):
+    result = await batch_retry_tasks_impl(db, ids, batch_id, failed_only, _safe_remove, _enqueue_task)
+    audit_admin_action("批量重试任务", f"ids={ids}; batch_id={batch_id}; failed_only={failed_only}")
     return result
 
 

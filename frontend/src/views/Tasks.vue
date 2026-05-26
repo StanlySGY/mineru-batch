@@ -495,6 +495,27 @@ async function handleRetryAllFailed() {
   loadTasks()
 }
 
+async function handleRetryCurrentBatchFailed() {
+  if (!filterBatchId.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将重试当前批次中所有失败任务，已完成任务不会重新提交。',
+      '重试本批次失败',
+      { confirmButtonText: '重试', cancelButtonText: '取消', type: 'warning' },
+    )
+  } catch {
+    return
+  }
+  try {
+    const res = await api.batchRetryFailedByBatch(filterBatchId.value)
+    if (res.count > 0) ElMessage.success(`已重新提交 ${res.count} 个失败任务`)
+    else ElMessage.warning('当前批次没有失败任务')
+    loadTasks()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '重试失败')
+  }
+}
+
 async function handleConvertAllDocs() {
   const items = tasks.value.filter(t => isDocFile(t.original_filename) && !t.pdf_path).map(t => ({ id: t.id, filename: t.original_filename }))
   if (!items.length) return ElMessage.warning('当前页无待转换文档')
@@ -773,6 +794,9 @@ function checkMobile() {
   <template v-else>
   <div v-if="filterBatchId" class="batch-filter-bar">
     <el-tag type="primary" effect="plain">当前批次：{{ filterBatchId }}</el-tag>
+    <el-button type="warning" size="small" plain :icon="RefreshRight" @click="handleRetryCurrentBatchFailed">
+      重试本批次失败
+    </el-button>
     <el-button type="success" size="small" plain :icon="Download" @click="handleCurrentBatchMarkdownDownload">
       导出本批次 Markdown
     </el-button>

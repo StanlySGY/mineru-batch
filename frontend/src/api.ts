@@ -405,6 +405,11 @@ export const api = {
     return data as { count: number }
   },
 
+  async batchRetryFailedByBatch(batchId: string) {
+    const { data } = await http.post('/tasks/batch/retry', null, { params: { batch_id: batchId, failed_only: true } })
+    return data as { count: number }
+  },
+
   async batchConvertDocs(ids: number[]) {
     const { data } = await http.post('/tasks/batch/convert', null, { params: { ids: ids.join(',') } })
     return data as { count: number }

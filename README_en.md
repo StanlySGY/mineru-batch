@@ -165,7 +165,7 @@ bash update-offline.sh mineru-batch-offline-vX.Y.Z.tar.gz
 
 - Search, filter, and paginate tasks.
 - Detail drawer with timeline, MinerU parameters, and error stack.
-- Batch retry, delete, convert, download, and easy-dataset Markdown export.
+- Batch retry, delete, convert, download, and easy-dataset Markdown export, with one-click failed-task retry in batch view.
 - Retry with the original node, another enabled node, or a custom URL.
 - Mobile layout automatically switches to cards.
 

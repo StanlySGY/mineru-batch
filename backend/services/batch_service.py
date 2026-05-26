@@ -144,12 +144,16 @@ async def batch_delete_tasks_impl(db: Session, ids: str, safe_remove_fn) -> dict
     return {"detail": "batch deleted", "count": len(tasks)}
 
 
-async def batch_retry_tasks_impl(db: Session, ids: str, safe_remove_fn, enqueue_fn) -> dict:
+async def batch_retry_tasks_impl(db: Session, ids: str | None, batch_id: str | None, failed_only: bool, safe_remove_fn, enqueue_fn) -> dict:
     """Retry multiple failed or completed tasks."""
-    id_list = _parse_id_list(ids)
-    if not id_list:
-        return {"detail": "batch retried", "count": 0}
-    tasks = db.query(FileTask).filter(FileTask.id.in_(id_list), FileTask.status.in_((TaskStatus.FAILED, TaskStatus.COMPLETED))).all()
+    statuses = (TaskStatus.FAILED,) if failed_only else (TaskStatus.FAILED, TaskStatus.COMPLETED)
+    if batch_id:
+        tasks = db.query(FileTask).filter(FileTask.batch_id == batch_id, FileTask.status.in_(statuses)).all()
+    else:
+        id_list = _parse_id_list(ids or "")
+        if not id_list:
+            return {"detail": "batch retried", "count": 0}
+        tasks = db.query(FileTask).filter(FileTask.id.in_(id_list), FileTask.status.in_(statuses)).all()
     for task in tasks:
         await asyncio.to_thread(safe_remove_fn, task.output_path)
         task.output_path = None

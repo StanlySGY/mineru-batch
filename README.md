@@ -165,7 +165,7 @@ bash update-offline.sh mineru-batch-offline-vX.Y.Z.tar.gz
 
 - 任务列表支持搜索、状态筛选和分页。
 - 任务详情抽屉展示时间线、MinerU 参数和错误堆栈。
-- 批量重试、删除、转换、下载和 easy-dataset Markdown 导出。
+- 批量重试、删除、转换、下载和 easy-dataset Markdown 导出，批次视图可一键重试失败任务。
 - 重试时可保持原节点、切换到其他节点或填写自定义 URL。
 - 移动端自动切换为卡片布局。
 

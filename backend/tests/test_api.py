@@ -240,6 +240,36 @@ class TestBatchOperations:
         assert sample_task.status == TaskStatus.PENDING
         assert sample_task.output_path is None
 
+    def test_batch_retry_failed_by_batch_id(self, client, db_session, tmp_dirs):
+        failed_out = os.path.join(tmp_dirs["output"], "failed-batch-1")
+        completed_out = os.path.join(tmp_dirs["output"], "completed-batch-1")
+        os.makedirs(failed_out)
+        os.makedirs(completed_out)
+        failed = FileTask(original_filename="failed.pdf", saved_filename="failed.pdf", file_path="/tmp/failed.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, output_path=failed_out, batch_id="batch-1")
+        completed = FileTask(original_filename="done.pdf", saved_filename="done.pdf", file_path="/tmp/done.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=completed_out, batch_id="batch-1")
+        other_failed = FileTask(original_filename="other.pdf", saved_filename="other.pdf", file_path="/tmp/other.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, batch_id="batch-2")
+        pending = FileTask(original_filename="pending.pdf", saved_filename="pending.pdf", file_path="/tmp/pending.pdf", status=TaskStatus.PENDING, output_format=OutputFormat.MD, batch_id="batch-1")
+        db_session.add_all([failed, completed, other_failed, pending])
+        db_session.commit()
+
+        with patch("routes._enqueue_task") as enqueue:
+            resp = client.post("/api/tasks/batch/retry", params={"batch_id": "batch-1", "failed_only": True})
+
+        assert resp.status_code == 200
+        assert resp.json()["count"] == 1
+        assert not os.path.exists(failed_out)
+        assert os.path.exists(completed_out)
+        enqueue.assert_called_once_with(failed.id)
+        db_session.refresh(failed)
+        db_session.refresh(completed)
+        db_session.refresh(other_failed)
+        db_session.refresh(pending)
+        assert failed.status == TaskStatus.PENDING
+        assert failed.output_path is None
+        assert completed.status == TaskStatus.COMPLETED
+        assert other_failed.status == TaskStatus.FAILED
+        assert pending.status == TaskStatus.PENDING
+
     def test_batch_download_markdown_only_keeps_relative_name(self, client, db_session, tmp_dirs):
         out_dir = os.path.join(tmp_dirs["output"], "bundle")
         os.makedirs(out_dir)
