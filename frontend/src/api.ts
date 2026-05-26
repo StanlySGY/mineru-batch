@@ -294,8 +294,8 @@ export const api = {
     return data as FailureCategories
   },
 
-  async getBatchProgress() {
-    const { data } = await http.get('/reports/batches')
+  async getBatchProgress(batchId?: string) {
+    const { data } = await http.get('/reports/batches', { params: batchId ? { batch_id: batchId } : undefined })
     return data as BatchProgressReport
   },
 

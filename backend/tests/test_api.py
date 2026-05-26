@@ -201,6 +201,17 @@ class TestStatsAndLogs:
         assert data["total"] == 1
         assert data["items"][0]["progress"] == 50.0
 
+    def test_batch_progress_report_filters_batch_id(self, client, db_session):
+        db_session.add_all([
+            FileTask(original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, batch_id="b1"),
+            FileTask(original_filename="b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.FAILED, output_format=OutputFormat.MD, batch_id="b2"),
+        ])
+        db_session.commit()
+        data = client.get("/api/reports/batches", params={"batch_id": "b2"}).json()
+        assert data["total"] == 1
+        assert data["items"][0]["batch_id"] == "b2"
+        assert data["items"][0]["failed"] == 1
+
 
 class TestBatchOperations:
     def test_batch_delete(self, client, sample_task, db_session):

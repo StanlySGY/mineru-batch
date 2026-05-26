@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type TaskItem, notifyTaskComplete } from '../api'
+import { api, type BatchProgressReport, type TaskItem, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError, getErrorSuggestion } from '../utils/error'
 import { formatTime, formatSize, statusTag } from '../utils/format'
@@ -48,6 +48,24 @@ const statusSummary = computed(() => {
   const s = { pending: 0, processing: 0, completed: 0, failed: 0 }
   for (const t of tasks.value) s[t.status] = (s[t.status] || 0) + 1
   return s
+})
+
+type BatchProgressEntry = BatchProgressReport['items'][number]
+const currentBatchStats = ref<BatchProgressEntry | null>(null)
+const currentBatchStatsLoading = ref(false)
+const currentBatchHasFailed = computed(() => (currentBatchStats.value?.failed || 0) > 0)
+const currentBatchHasCompleted = computed(() => (currentBatchStats.value?.completed || 0) > 0)
+const currentBatchReadyToExport = computed(() => {
+  const stats = currentBatchStats.value
+  return !!stats && stats.completed > 0 && stats.pending === 0 && stats.processing === 0 && stats.failed === 0
+})
+const currentBatchHint = computed(() => {
+  const stats = currentBatchStats.value
+  if (!stats) return '正在读取当前批次状态'
+  if (stats.failed > 0) return `本批次有 ${stats.failed} 个失败任务，建议先重试后再导出。`
+  if (stats.pending + stats.processing > 0) return `还有 ${stats.pending + stats.processing} 个任务未完成，可等待完成后再导出。`
+  if (stats.completed > 0) return '本批次已全部完成，可直接导出 Markdown。'
+  return '本批次暂无可导出的已完成任务。'
 })
 
 const selectedHasRetryable = computed(() =>
@@ -371,6 +389,20 @@ function applyTaskAsPreset(task: TaskItem) {
   ElMessage.success('已将任务参数应用为当前配置，请前往上传页重新提交')
 }
 
+async function loadCurrentBatchStats() {
+  if (!filterBatchId.value) {
+    currentBatchStats.value = null
+    return
+  }
+  currentBatchStatsLoading.value = true
+  try {
+    const res = await api.getBatchProgress(filterBatchId.value)
+    currentBatchStats.value = res.items[0] || null
+  } finally {
+    currentBatchStatsLoading.value = false
+  }
+}
+
 async function loadTasks() {
   loading.value = true
   try {
@@ -383,6 +415,7 @@ async function loadTasks() {
     })
     tasks.value = res.items
     total.value = res.total
+    await loadCurrentBatchStats()
   } finally {
     loading.value = false
     firstLoad.value = false
@@ -476,9 +509,13 @@ async function handleBatchMarkdownDownload() {
 
 async function handleCurrentBatchMarkdownDownload() {
   if (!filterBatchId.value) return
+  if (!currentBatchHasCompleted.value) return ElMessage.warning('当前批次还没有已完成任务')
+  const detail = currentBatchReadyToExport.value
+    ? '当前批次已全部完成，将导出 Markdown ZIP。解压后可直接把 .md 文件拖入 easy-dataset。'
+    : '将导出当前批次中所有已完成任务的 Markdown ZIP；未完成或失败任务不会包含在内。'
   try {
     await ElMessageBox.confirm(
-      '将导出当前批次中所有已完成任务的 Markdown ZIP。解压后可直接把 .md 文件拖入 easy-dataset。',
+      detail,
       '导出本批次 Markdown',
       { confirmButtonText: '导出', cancelButtonText: '取消', type: 'info' },
     )
@@ -497,9 +534,10 @@ async function handleRetryAllFailed() {
 
 async function handleRetryCurrentBatchFailed() {
   if (!filterBatchId.value) return
+  if (!currentBatchHasFailed.value) return ElMessage.warning('当前批次没有失败任务')
   try {
     await ElMessageBox.confirm(
-      '将重试当前批次中所有失败任务，已完成任务不会重新提交。',
+      `将重试当前批次中 ${currentBatchStats.value?.failed || 0} 个失败任务，已完成任务不会重新提交。`,
       '重试本批次失败',
       { confirmButtonText: '重试', cancelButtonText: '取消', type: 'warning' },
     )
@@ -792,15 +830,27 @@ function checkMobile() {
 
   <el-skeleton v-if="firstLoad" :rows="8" animated />
   <template v-else>
-  <div v-if="filterBatchId" class="batch-filter-bar">
-    <el-tag type="primary" effect="plain">当前批次：{{ filterBatchId }}</el-tag>
-    <el-button type="warning" size="small" plain :icon="RefreshRight" @click="handleRetryCurrentBatchFailed">
-      重试本批次失败
-    </el-button>
-    <el-button type="success" size="small" plain :icon="Download" @click="handleCurrentBatchMarkdownDownload">
-      导出本批次 Markdown
-    </el-button>
-    <el-button size="small" text @click="clearBatchFilter">查看全部任务</el-button>
+  <div v-if="filterBatchId" class="batch-filter-bar" :class="{ 'is-ready': currentBatchReadyToExport }">
+    <div class="batch-filter-main">
+      <el-tag type="primary" effect="plain">当前批次：{{ filterBatchId }}</el-tag>
+      <template v-if="currentBatchStats">
+        <el-tag type="success" size="small" effect="plain">已完成 {{ currentBatchStats.completed }}</el-tag>
+        <el-tag type="danger" size="small" effect="plain">失败 {{ currentBatchStats.failed }}</el-tag>
+        <el-tag type="warning" size="small" effect="plain">处理中 {{ currentBatchStats.processing }}</el-tag>
+        <el-tag type="info" size="small" effect="plain">等待 {{ currentBatchStats.pending }}</el-tag>
+      </template>
+      <span v-else class="batch-filter-hint">{{ currentBatchHint }}</span>
+      <span v-if="currentBatchStats" class="batch-filter-hint">{{ currentBatchHint }}</span>
+    </div>
+    <div class="batch-filter-actions">
+      <el-button type="warning" size="small" plain :icon="RefreshRight" :disabled="currentBatchStatsLoading || !currentBatchHasFailed" @click="handleRetryCurrentBatchFailed">
+        重试本批次失败
+      </el-button>
+      <el-button type="success" size="small" :plain="!currentBatchReadyToExport" :icon="Download" :disabled="currentBatchStatsLoading || !currentBatchHasCompleted" @click="handleCurrentBatchMarkdownDownload">
+        导出本批次 Markdown
+      </el-button>
+      <el-button size="small" text @click="clearBatchFilter">查看全部任务</el-button>
+    </div>
   </div>
   <div class="summary-bar">
     <span>共 <strong>{{ total }}</strong> 个任务</span>
@@ -1136,6 +1186,14 @@ function checkMobile() {
 }
 .summary-divider { color: #dcdfe6; }
 .summary-spacer { flex: 1; }
+.batch-filter-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; margin-bottom: 10px; border: 1px solid #ebeef5; border-radius: 8px;
+  background: #fafafa; flex-wrap: wrap;
+}
+.batch-filter-bar.is-ready { border-color: #b3e19d; background: #f0f9eb; }
+.batch-filter-main, .batch-filter-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.batch-filter-hint { font-size: 13px; color: #606266; }
 .live-timer { color: #e6a23c; font-variant-numeric: tabular-nums; }
 .card-header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .card-header .filter-row { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

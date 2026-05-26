@@ -5,13 +5,11 @@ from sqlalchemy.orm import Session
 from models import FileTask
 
 
-def get_batch_progress_impl(db: Session, limit: int = 20) -> dict:
-    rows = (
-        db.query(FileTask.batch_id, FileTask.batch_name, FileTask.status, func.count(FileTask.id), func.max(FileTask.created_at))
-        .filter(FileTask.batch_id.isnot(None))
-        .group_by(FileTask.batch_id, FileTask.batch_name, FileTask.status)
-        .all()
-    )
+def get_batch_progress_impl(db: Session, limit: int = 20, batch_id: str | None = None) -> dict:
+    query = db.query(FileTask.batch_id, FileTask.batch_name, FileTask.status, func.count(FileTask.id), func.max(FileTask.created_at)).filter(FileTask.batch_id.isnot(None))
+    if batch_id:
+        query = query.filter(FileTask.batch_id == batch_id)
+    rows = query.group_by(FileTask.batch_id, FileTask.batch_name, FileTask.status).all()
     batches: dict[str, dict] = {}
     for batch_id, batch_name, status, count, latest in rows:
         item = batches.setdefault(batch_id, {

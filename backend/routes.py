@@ -676,8 +676,8 @@ async def get_failure_categories(db: Session = Depends(get_db)):
 
 
 @router.get("/reports/batches")
-async def get_batch_progress(db: Session = Depends(get_db)):
-    return get_batch_progress_impl(db)
+async def get_batch_progress(batch_id: str | None = Query(None, description="batch ID"), db: Session = Depends(get_db)):
+    return get_batch_progress_impl(db, batch_id=batch_id)
 
 
 @router.get("/tasks/events")
