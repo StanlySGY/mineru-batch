@@ -32,14 +32,14 @@ const dragCounter = ref(0)
 // 解析场景预设（不持久化，仅当前上传会话有效）
 interface ProfileItem { label: string; desc: string; config: Record<string, any> }
 const PROFILES: Record<string, ProfileItem> = {
+  easyDataset: {
+    label: 'easy-dataset', desc: '推荐：轻量 Markdown，可直接批量导入数据集',
+    config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: false, returnModelOutput: false, returnContentList: false, returnImages: false, responseFormatZip: false, replaceImageUrl: false, outputFormat: 'md' },
+  },
   none: { label: '全局默认', desc: '使用设置页的当前配置', config: {} },
   academic: {
     label: '学术论文', desc: '公式/表格全开，保留完整结构信息',
     config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: true, returnImages: true },
-  },
-  easyDataset: {
-    label: 'easy-dataset', desc: '输出轻量 Markdown，便于批量导入数据集',
-    config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: false, returnModelOutput: false, returnContentList: false, returnImages: false, responseFormatZip: false, replaceImageUrl: false, outputFormat: 'md' },
   },
   plaintext: {
     label: '纯文本', desc: '仅提取文字，关闭格式识别和图片',
@@ -50,7 +50,7 @@ const PROFILES: Record<string, ProfileItem> = {
     config: { parseMethod: 'ocr', formulaEnable: true, tableEnable: true, returnMd: true, returnImages: true },
   },
 }
-const selectedProfile = ref<string>('none')
+const selectedProfile = ref<string>('easyDataset')
 
 // 当前上传会话的配置 = 全局默认 + 场景预设覆盖
 const sessionConfig = computed(() => ({

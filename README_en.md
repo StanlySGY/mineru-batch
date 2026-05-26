@@ -68,8 +68,8 @@ make prod
 # 2. Configure MinerU API nodes in Settings
 # Add multiple nodes if you need higher batch throughput
 
-# 3. Select the easy-dataset parse preset on the Upload page
-# This preset outputs lightweight Markdown and disables images, intermediate JSON, and model outputs
+# 3. The Upload page uses the easy-dataset parse preset by default
+# This default preset outputs lightweight Markdown and disables images, intermediate JSON, and model outputs
 
 # 4. Drag and drop a PDF folder
 # The system preserves relative folder structure
