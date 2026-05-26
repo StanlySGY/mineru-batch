@@ -212,15 +212,11 @@ def batch_download_tasks_impl(db: Session, ids: str) -> io.BytesIO:
     return buf
 
 
-def _build_markdown_export_plan(db: Session, ids: str, max_part_mb: int = 45) -> dict:
-    id_list = _parse_id_list(ids)
-    if not id_list:
-        raise HTTPException(400, "No valid task IDs")
-    max_part_mb = max(1, min(max_part_mb, 50))
-    max_bytes = max_part_mb * 1024 * 1024
-    tasks = db.query(FileTask).filter(FileTask.id.in_(id_list), FileTask.status == TaskStatus.COMPLETED).all()
+def _build_markdown_export_plan_for_tasks(tasks: list[FileTask], selected_count: int, max_part_mb: int = 45) -> dict:
     if not tasks:
         raise HTTPException(400, "No completed tasks found")
+    max_part_mb = max(1, min(max_part_mb, 50))
+    max_bytes = max_part_mb * 1024 * 1024
 
     used: set[str] = set()
     files: list[dict] = []
@@ -262,7 +258,7 @@ def _build_markdown_export_plan(db: Session, ids: str, max_part_mb: int = 45) ->
     total_parts = sum(item["parts"] for item in files)
     total_bytes = sum(item["markdown_bytes"] for item in files)
     return {
-        "selected_tasks": len(id_list),
+        "selected_tasks": selected_count,
         "completed_tasks": len(tasks),
         "exported_tasks": len(files),
         "skipped_tasks": skipped,
@@ -276,9 +272,26 @@ def _build_markdown_export_plan(db: Session, ids: str, max_part_mb: int = 45) ->
     }
 
 
+def _build_markdown_export_plan(db: Session, ids: str | None, batch_id: str | None, max_part_mb: int = 45) -> dict:
+    if batch_id:
+        tasks = db.query(FileTask).filter(
+            FileTask.batch_id == batch_id,
+            FileTask.status == TaskStatus.COMPLETED,
+        ).order_by(FileTask.id.asc()).all()
+        return _build_markdown_export_plan_for_tasks(tasks, len(tasks), max_part_mb)
 
-def batch_download_markdown_tasks_impl(db: Session, ids: str, max_part_mb: int = 45, include_manifest: bool = False) -> io.BytesIO:
-    plan = _build_markdown_export_plan(db, ids, max_part_mb)
+    id_list = _parse_id_list(ids or "")
+    if not id_list:
+        raise HTTPException(400, "No valid task IDs or batch ID")
+    tasks = db.query(FileTask).filter(
+        FileTask.id.in_(id_list),
+        FileTask.status == TaskStatus.COMPLETED,
+    ).order_by(FileTask.id.asc()).all()
+    return _build_markdown_export_plan_for_tasks(tasks, len(id_list), max_part_mb)
+
+
+def batch_download_markdown_tasks_impl(db: Session, ids: str | None = None, batch_id: str | None = None, max_part_mb: int = 45, include_manifest: bool = False) -> io.BytesIO:
+    plan = _build_markdown_export_plan(db, ids, batch_id, max_part_mb)
     manifest = {k: v for k, v in plan.items() if not k.startswith("_")}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

@@ -818,12 +818,13 @@ async def batch_download_tasks(ids: str = Query(..., description="comma-separate
 
 @router.get("/tasks/batch/download-markdown")
 async def batch_download_markdown_tasks(
-    ids: str = Query(..., description="comma-separated task IDs"),
+    ids: str | None = Query(None, description="comma-separated task IDs"),
+    batch_id: str | None = Query(None, description="batch ID"),
     max_part_mb: int = Query(45, ge=1, le=50),
     include_manifest: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    buf = batch_download_markdown_tasks_impl(db, ids, max_part_mb, include_manifest)
+    buf = batch_download_markdown_tasks_impl(db, ids=ids, batch_id=batch_id, max_part_mb=max_part_mb, include_manifest=include_manifest)
     return StreamingResponse(
         buf,
         media_type="application/zip",

@@ -262,6 +262,36 @@ class TestBatchOperations:
             assert names == ["docs/a.md"]
             assert zf.read("docs/a.md").decode() == "# Hello"
 
+    def test_batch_download_markdown_by_batch_id_exports_completed_only(self, client, db_session, tmp_dirs):
+        out_a = os.path.join(tmp_dirs["output"], "batch-a.md")
+        out_b = os.path.join(tmp_dirs["output"], "batch-b.md")
+        out_pending = os.path.join(tmp_dirs["output"], "batch-pending.md")
+        out_other = os.path.join(tmp_dirs["output"], "batch-other.md")
+        for path, content in [
+            (out_a, "# A"),
+            (out_b, "# B"),
+            (out_pending, "# Pending"),
+            (out_other, "# Other"),
+        ]:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+        db_session.add_all([
+            FileTask(original_filename="docs/a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_a, batch_id="batch-1"),
+            FileTask(original_filename="docs/b.pdf", saved_filename="b.pdf", file_path="/tmp/b.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_b, batch_id="batch-1"),
+            FileTask(original_filename="docs/pending.pdf", saved_filename="pending.pdf", file_path="/tmp/pending.pdf", status=TaskStatus.PENDING, output_format=OutputFormat.MD, output_path=out_pending, batch_id="batch-1"),
+            FileTask(original_filename="docs/other.pdf", saved_filename="other.pdf", file_path="/tmp/other.pdf", status=TaskStatus.COMPLETED, output_format=OutputFormat.MD, output_path=out_other, batch_id="batch-2"),
+        ])
+        db_session.commit()
+
+        resp = client.get("/api/tasks/batch/download-markdown", params={"batch_id": "batch-1"})
+
+        assert resp.status_code == 200
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            names = zf.namelist()
+            assert names == ["docs/a.md", "docs/b.md"]
+            assert zf.read("docs/a.md").decode() == "# A"
+            assert zf.read("docs/b.md").decode() == "# B"
+
     def test_batch_download_markdown_splits_large_file(self, client, db_session, tmp_dirs):
         out_path = os.path.join(tmp_dirs["output"], "large.md")
         with open(out_path, "w", encoding="utf-8") as f:

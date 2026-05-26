@@ -436,14 +436,9 @@ async function handleBatchConvert() {
   loadTasks()
 }
 
-function handleBatchDownload() {
-  const ids = selectedIds.value.filter(id => {
-    const t = tasks.value.find(r => r.id === id)
-    return t && t.status === 'completed'
-  })
-  if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
+function triggerDownload(url: string) {
   const a = document.createElement('a')
-  a.href = api.batchDownloadUrl(ids)
+  a.href = url
   a.download = ''
   a.target = '_blank'
   document.body.appendChild(a)
@@ -451,11 +446,21 @@ function handleBatchDownload() {
   document.body.removeChild(a)
 }
 
-async function handleBatchMarkdownDownload() {
-  const ids = selectedIds.value.filter(id => {
+function completedSelectedIds() {
+  return selectedIds.value.filter(id => {
     const t = tasks.value.find(r => r.id === id)
     return t && t.status === 'completed'
   })
+}
+
+function handleBatchDownload() {
+  const ids = completedSelectedIds()
+  if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
+  triggerDownload(api.batchDownloadUrl(ids))
+}
+
+async function handleBatchMarkdownDownload() {
+  const ids = completedSelectedIds()
   if (!ids.length) return ElMessage.warning('选中的任务中没有已完成的')
   try {
     await ElMessageBox.confirm(
@@ -466,13 +471,21 @@ async function handleBatchMarkdownDownload() {
   } catch {
     return
   }
-  const a = document.createElement('a')
-  a.href = api.batchMarkdownDownloadUrl(ids)
-  a.download = ''
-  a.target = '_blank'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  triggerDownload(api.batchMarkdownDownloadUrl(ids))
+}
+
+async function handleCurrentBatchMarkdownDownload() {
+  if (!filterBatchId.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将导出当前批次中所有已完成任务的 Markdown ZIP。解压后可直接把 .md 文件拖入 easy-dataset。',
+      '导出本批次 Markdown',
+      { confirmButtonText: '导出', cancelButtonText: '取消', type: 'info' },
+    )
+  } catch {
+    return
+  }
+  triggerDownload(api.batchMarkdownDownloadByBatchUrl(filterBatchId.value))
 }
 
 async function handleRetryAllFailed() {
@@ -760,6 +773,9 @@ function checkMobile() {
   <template v-else>
   <div v-if="filterBatchId" class="batch-filter-bar">
     <el-tag type="primary" effect="plain">当前批次：{{ filterBatchId }}</el-tag>
+    <el-button type="success" size="small" plain :icon="Download" @click="handleCurrentBatchMarkdownDownload">
+      导出本批次 Markdown
+    </el-button>
     <el-button size="small" text @click="clearBatchFilter">查看全部任务</el-button>
   </div>
   <div class="summary-bar">

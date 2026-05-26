@@ -74,7 +74,8 @@ make prod
 # 4. Drag and drop a PDF folder
 # The system preserves relative folder structure
 
-# 5. After tasks complete, select them on the task list and click "Export Markdown"
+# 5. After tasks complete, select tasks and click "Export Markdown"
+# If you opened the task list from a batch, click "Export This Batch Markdown"
 # Unzip the ZIP and drag the .md files directly into easy-dataset
 ```
 
