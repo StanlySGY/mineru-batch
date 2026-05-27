@@ -208,6 +208,7 @@ export interface FailureCategories {
 export interface BatchItem {
   batch_id: string
   batch_name: string | null
+  archived: boolean
   total: number
   pending: number
   processing: number
@@ -318,6 +319,11 @@ export const api = {
 
   async getBatch(batchId: string) {
     const { data } = await http.get(`/batches/${encodeURIComponent(batchId)}`)
+    return data as BatchItem
+  },
+
+  async updateBatch(batchId: string, payload: { batch_name?: string; archived?: boolean }) {
+    const { data } = await http.patch(`/batches/${encodeURIComponent(batchId)}`, payload)
     return data as BatchItem
   },
 

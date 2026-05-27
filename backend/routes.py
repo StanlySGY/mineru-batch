@@ -703,13 +703,17 @@ async def get_batch_progress(batch_id: str | None = Query(None, description="bat
 
 
 @router.get("/batches")
-async def list_batches(limit: int = Query(20, ge=1, le=100), db: Session = Depends(get_db)):
-    return get_batch_progress_impl(db, limit=limit)
+async def list_batches(
+    limit: int = Query(20, ge=1, le=100),
+    include_archived: bool = Query(False),
+    db: Session = Depends(get_db),
+):
+    return get_batch_progress_impl(db, limit=limit, include_archived=include_archived)
 
 
 @router.get("/batches/{batch_id}")
 async def get_batch(batch_id: str, db: Session = Depends(get_db)):
-    report = get_batch_progress_impl(db, limit=1, batch_id=batch_id)
+    report = get_batch_progress_impl(db, limit=1, batch_id=batch_id, include_archived=True)
     if report["items"]:
         return report["items"][0]
     batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
@@ -718,6 +722,38 @@ async def get_batch(batch_id: str, db: Session = Depends(get_db)):
     return {
         "batch_id": batch.batch_id,
         "batch_name": batch.name,
+        "archived": bool(batch.archived),
+        "total": 0,
+        "pending": 0,
+        "processing": 0,
+        "completed": 0,
+        "failed": 0,
+        "progress": 0,
+        "latest_at": batch.updated_at.isoformat() if batch.updated_at else None,
+    }
+
+
+@router.patch("/batches/{batch_id}")
+async def update_batch(batch_id: str, body: dict, db: Session = Depends(get_db), _: None = Depends(require_admin)):
+    batch = db.query(Batch).filter(Batch.batch_id == batch_id).first()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+    if "batch_name" in body or "name" in body:
+        name = str(body.get("batch_name", body.get("name", ""))).strip()[:256]
+        batch.name = name or None
+        db.query(FileTask).filter(FileTask.batch_id == batch_id).update({FileTask.batch_name: batch.name})
+    if "archived" in body:
+        batch.archived = bool(body.get("archived"))
+    db.commit()
+    db.refresh(batch)
+    audit_admin_action("更新批次", f"batch_id={batch_id}; archived={batch.archived}")
+    report = get_batch_progress_impl(db, limit=1, batch_id=batch_id, include_archived=True)
+    if report["items"]:
+        return report["items"][0]
+    return {
+        "batch_id": batch.batch_id,
+        "batch_name": batch.name,
+        "archived": bool(batch.archived),
         "total": 0,
         "pending": 0,
         "processing": 0,

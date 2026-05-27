@@ -270,10 +270,34 @@ class TestStatsAndLogs:
         list_data = client.get("/api/batches").json()
         detail = client.get("/api/batches/b1").json()
         assert list_data["total"] == 1
+        assert list_data["items"][0]["archived"] is False
         assert detail["batch_id"] == "b1"
         assert detail["batch_name"] == "接口批次"
+        assert detail["archived"] is False
         assert detail["total"] == 2
         assert detail["progress"] == 50.0
+
+    def test_update_batch_rename_and_archive(self, client, db_session):
+        db_session.add(Batch(batch_id="b-edit", name="旧名称"))
+        task = FileTask(
+            original_filename="a.pdf", saved_filename="a.pdf", file_path="/tmp/a.pdf",
+            status=TaskStatus.COMPLETED, output_format=OutputFormat.MD,
+            batch_id="b-edit", batch_name="旧名称",
+        )
+        db_session.add(task)
+        db_session.commit()
+
+        resp = client.patch("/api/batches/b-edit", json={"batch_name": "新名称", "archived": True})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["batch_name"] == "新名称"
+        assert data["archived"] is True
+        assert db_session.query(FileTask).filter(FileTask.id == task.id).first().batch_name == "新名称"
+
+        list_data = client.get("/api/batches").json()
+        assert all(item["batch_id"] != "b-edit" for item in list_data["items"])
+        archived_data = client.get("/api/batches", params={"include_archived": True}).json()
+        assert any(item["batch_id"] == "b-edit" for item in archived_data["items"])
 
 class TestBatchOperations:
     def test_batch_delete(self, client, sample_task, db_session):

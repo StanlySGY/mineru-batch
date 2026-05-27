@@ -688,6 +688,35 @@ async function handleConvertDoc(row: TaskItem) {
   }
 }
 
+async function renameCurrentBatch() {
+  if (!filterBatchId.value) return
+  try {
+    const { value } = await ElMessageBox.prompt('请输入新的批次名称', '编辑批次名称', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValue: currentBatchTitle.value,
+      inputPattern: /^.{0,80}$/,
+      inputErrorMessage: '最多 80 个字符',
+    })
+    currentBatchStats.value = await api.updateBatch(filterBatchId.value, { batch_name: value.trim() })
+    ElMessage.success('批次名称已更新')
+    loadTasks()
+  } catch {}
+}
+
+async function archiveCurrentBatch() {
+  if (!filterBatchId.value) return
+  try {
+    await ElMessageBox.confirm('归档后该批次会从仪表盘批次列表中隐藏，但任务和文件不会被删除。', '归档当前批次', {
+      confirmButtonText: '归档',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    currentBatchStats.value = await api.updateBatch(filterBatchId.value, { archived: true })
+    ElMessage.success('批次已归档')
+  } catch {}
+}
+
 function clearBatchFilter() {
   filterBatchId.value = ''
   router.replace({ path: '/tasks', query: { ...route.query, batch_id: undefined } })
@@ -883,6 +912,8 @@ function checkMobile() {
       <el-button type="warning" size="small" plain :icon="RefreshRight" :disabled="currentBatchStatsLoading || !currentBatchHasFailed" @click="handleRetryCurrentBatchFailed">
         重试本批次失败
       </el-button>
+      <el-button size="small" plain @click="renameCurrentBatch">编辑名称</el-button>
+      <el-button size="small" plain type="info" @click="archiveCurrentBatch">归档批次</el-button>
       <el-button type="success" size="small" :plain="!currentBatchReadyToExport" :icon="Download" :disabled="currentBatchStatsLoading || !currentBatchHasCompleted" @click="handleCurrentBatchMarkdownDownload">
         导出本批次 Markdown
       </el-button>

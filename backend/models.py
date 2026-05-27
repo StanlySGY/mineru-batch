@@ -33,6 +33,7 @@ class Batch(Base):
 
     batch_id = Column(String(64), primary_key=True)
     name = Column(String(256), nullable=True)
+    archived = Column(Boolean, default=False, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -40,6 +41,7 @@ class Batch(Base):
         return {
             "batch_id": self.batch_id,
             "batch_name": self.name,
+            "archived": bool(self.archived),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -160,6 +162,11 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 def _ensure_compatible_schema():
     inspector = inspect(engine)
+    if "batches" in inspector.get_table_names():
+        batch_columns = {c["name"] for c in inspector.get_columns("batches")}
+        with engine.begin() as conn:
+            if "archived" not in batch_columns:
+                conn.execute(text("ALTER TABLE batches ADD COLUMN archived BOOLEAN DEFAULT 0"))
     if "file_tasks" not in inspector.get_table_names():
         return
     columns = {c["name"] for c in inspector.get_columns("file_tasks")}
