@@ -1153,6 +1153,11 @@ function checkMobile() {
       <div v-if="getErrorSuggestion(detailTask.error_message)" class="detail-suggestion">
         💡 {{ getErrorSuggestion(detailTask.error_message) }}
       </div>
+      <div class="diagnosis-actions">
+        <el-button size="small" type="primary" plain @click="applyTaskAsPreset(detailTask); detailVisible = false">套用参数重新上传</el-button>
+        <el-button size="small" type="warning" plain @click="handleRetry(detailTask); detailVisible = false">选择节点重试</el-button>
+        <el-button size="small" plain @click="router.push('/settings'); detailVisible = false">检查节点设置</el-button>
+      </div>
     </template>
 
     <div class="detail-actions">
@@ -1315,6 +1320,7 @@ function checkMobile() {
 .detail-error { background: #fef0f0; border-radius: 6px; padding: 12px; }
 .detail-error pre { margin: 0; font-size: 12px; color: #c0392b; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 .detail-suggestion { background: #ecf5ff; border-radius: 6px; padding: 10px 12px; margin-top: 8px; font-size: 13px; color: #409eff; line-height: 1.5; }
+.diagnosis-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .detail-actions { display: flex; gap: 8px; margin-top: 20px; }
 .mobile-card-list { display: flex; flex-direction: column; gap: 10px; }
 .mobile-task-card {
