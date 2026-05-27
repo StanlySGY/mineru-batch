@@ -453,6 +453,15 @@ onMounted(() => {
         </el-form-item>
       </el-form>
 
+      <div v-if="!fileList.length" class="quick-start-card">
+        <div class="quick-start-title">easy-dataset 快速流程</div>
+        <div class="quick-start-steps">
+          <span>1. 拖入 PDF/文档文件夹</span>
+          <span>2. 使用右侧 easy-dataset 预设</span>
+          <span>3. 完成后在任务页导出 Markdown ZIP</span>
+        </div>
+      </div>
+
       <div
         class="upload-drop-zone"
         :class="{ 'is-dragging': isDragging }"
@@ -587,10 +596,8 @@ onMounted(() => {
       </div>
       <div v-else class="card-section">
         <div class="no-nodes">
-          <span>未配置解析节点</span>
-          <el-link type="primary" :underline="false" @click="$router.push('/settings')" size="small">
-            去设置页配置 ↗
-          </el-link>
+          <span>未配置解析节点，暂时无法开始上传解析</span>
+          <el-button type="primary" size="small" plain @click="$router.push('/settings')">去设置页配置</el-button>
         </div>
       </div>
 
@@ -725,6 +732,12 @@ onMounted(() => {
 }
 .card-header-row { display: flex; align-items: center; gap: 10px; }
 .card-title { font-weight: 600; }
+.quick-start-card {
+  margin-bottom: 12px; padding: 12px; border-radius: 10px;
+  background: #f0f9eb; border: 1px solid #d1edc4; color: #529b2e;
+}
+.quick-start-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.quick-start-steps { display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.4; }
 
 .profile-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
