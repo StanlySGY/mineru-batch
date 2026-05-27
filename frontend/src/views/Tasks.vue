@@ -454,6 +454,11 @@ async function handleBatchRetry() {
     return { id, filename: t?.original_filename || `#${id}`, retryable: t && (t.status === 'failed' || t.status === 'completed') }
   }).filter(i => i.retryable)
   if (!items.length) return ElMessage.warning('选中的任务中没有可重试的（失败/已完成）')
+  try {
+    await ElMessageBox.confirm(`确定重试选中的 ${items.length} 个任务？这些任务会重新进入解析队列。`, '重试选中', { type: 'warning' })
+  } catch {
+    return
+  }
   await runBatchProgress('批量重试', items, (id) => api.retryTask(id))
   selectedIds.value = []
   loadTasks()
@@ -466,6 +471,11 @@ async function handleBatchConvert() {
     return { id, filename: t?.original_filename || `#${id}`, convertible: t && isDocFile(t.original_filename) && !t.pdf_path }
   }).filter(i => i.convertible)
   if (!items.length) return ElMessage.warning('选中的任务中没有待转换的文档')
+  try {
+    await ElMessageBox.confirm(`确定转换选中的 ${items.length} 个文档？转换后会自动进入解析流程。`, '转换选中', { type: 'warning' })
+  } catch {
+    return
+  }
   await runBatchProgress('批量转换', items, (id) => api.convertDocToPdf(id))
   selectedIds.value = []
   loadTasks()
@@ -530,6 +540,11 @@ async function handleCurrentBatchMarkdownDownload() {
 async function handleRetryAllFailed() {
   const items = tasks.value.filter(t => t.status === 'failed').map(t => ({ id: t.id, filename: t.original_filename }))
   if (!items.length) return ElMessage.warning('当前页无失败任务')
+  try {
+    await ElMessageBox.confirm(`确定重试当前页 ${items.length} 个失败任务？这些任务会重新进入解析队列。`, '重试当前页失败', { type: 'warning' })
+  } catch {
+    return
+  }
   await runBatchProgress('重试当前页失败', items, (id) => api.retryTask(id))
   loadTasks()
 }
@@ -559,6 +574,11 @@ async function handleRetryCurrentBatchFailed() {
 async function handleConvertAllDocs() {
   const items = tasks.value.filter(t => isDocFile(t.original_filename) && !t.pdf_path).map(t => ({ id: t.id, filename: t.original_filename }))
   if (!items.length) return ElMessage.warning('当前页无待转换文档')
+  try {
+    await ElMessageBox.confirm(`确定转换当前页 ${items.length} 个文档？转换后会自动进入解析流程。`, '转换当前页文档', { type: 'warning' })
+  } catch {
+    return
+  }
   await runBatchProgress('转换当前页文档', items, (id) => api.convertDocToPdf(id))
   loadTasks()
 }
