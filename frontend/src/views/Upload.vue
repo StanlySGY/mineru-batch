@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted, onMounted } from 'vue'
 import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
 import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
@@ -29,9 +29,10 @@ const folderInputRef = ref<HTMLInputElement | null>(null)
 const isDragging = ref(false)
 const dragCounter = ref(0)
 
-// 解析场景预设（不持久化，仅当前上传会话有效）
-interface ProfileItem { label: string; desc: string; config: Record<string, any> }
-const PROFILES: Record<string, ProfileItem> = {
+// 解析场景预设
+interface ProfileItem { label: string; desc: string; config: Record<string, any>; custom?: boolean }
+const CUSTOM_PROFILES_KEY = 'upload_custom_profiles'
+const BUILTIN_PROFILES: Record<string, ProfileItem> = {
   easyDataset: {
     label: 'easy-dataset', desc: '推荐：轻量 Markdown，可直接批量导入数据集',
     config: { parseMethod: 'auto', formulaEnable: true, tableEnable: true, returnMd: true, returnMiddleJson: false, returnModelOutput: false, returnContentList: false, returnImages: false, responseFormatZip: false, replaceImageUrl: false, outputFormat: 'md' },
@@ -50,12 +51,57 @@ const PROFILES: Record<string, ProfileItem> = {
     config: { parseMethod: 'ocr', formulaEnable: true, tableEnable: true, returnMd: true, returnImages: true },
   },
 }
+const customProfiles = ref<Record<string, ProfileItem>>(loadCustomProfiles())
+const PROFILES = computed<Record<string, ProfileItem>>(() => ({ ...BUILTIN_PROFILES, ...customProfiles.value }))
 const selectedProfile = ref<string>('easyDataset')
+
+function loadCustomProfiles(): Record<string, ProfileItem> {
+  try {
+    const raw = localStorage.getItem(CUSTOM_PROFILES_KEY)
+    const parsed = raw ? JSON.parse(raw) : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).filter(([, v]: any) => v?.label && v?.config)) as Record<string, ProfileItem>
+  } catch {
+    return {}
+  }
+}
+
+function saveCustomProfiles() {
+  localStorage.setItem(CUSTOM_PROFILES_KEY, JSON.stringify(customProfiles.value))
+}
+
+async function saveCurrentProfile() {
+  try {
+    const { value } = await ElMessageBox.prompt('为当前解析配置命名，之后可一键复用。', '保存自定义预设', {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputPattern: /^.{1,24}$/,
+      inputErrorMessage: '请输入 1-24 个字符',
+    })
+    const id = `custom_${Date.now()}`
+    customProfiles.value[id] = {
+      label: value.trim(),
+      desc: '自定义预设：基于当前解析配置保存',
+      config: { ...cfg.getCurrentConfig() },
+      custom: true,
+    }
+    selectedProfile.value = id
+    saveCustomProfiles()
+    ElMessage.success('已保存自定义预设')
+  } catch {}
+}
+
+function removeCustomProfile(key: string) {
+  delete customProfiles.value[key]
+  if (selectedProfile.value === key) selectedProfile.value = 'easyDataset'
+  saveCustomProfiles()
+  ElMessage.success('已删除自定义预设')
+}
 
 // 当前上传会话的配置 = 全局默认 + 场景预设覆盖
 const sessionConfig = computed(() => ({
   ...cfg.getCurrentConfig(),
-  ...PROFILES[selectedProfile.value]?.config,
+  ...PROFILES.value[selectedProfile.value]?.config,
 }))
 
 // 每批上传独立选择的节点列表，不从 store 持久化
@@ -483,14 +529,20 @@ onMounted(() => {
 
       <!-- 解析场景 -->
       <div class="card-section">
-        <div class="section-label">解析场景</div>
+        <div class="section-title-row">
+          <div class="section-label">解析场景</div>
+          <el-button size="small" text type="primary" @click="saveCurrentProfile">保存当前配置</el-button>
+        </div>
         <div class="profile-selector">
           <div v-for="(p, key) in PROFILES" :key="key"
             class="profile-card"
             :class="{ active: selectedProfile === key }"
             @click="selectedProfile = key"
           >
-            <div class="profile-label">{{ p.label }}</div>
+            <div class="profile-label-row">
+              <div class="profile-label">{{ p.label }}</div>
+              <el-button v-if="p.custom" size="small" text type="danger" @click.stop="removeCustomProfile(String(key))">删除</el-button>
+            </div>
             <div class="profile-desc">{{ p.desc }}</div>
           </div>
         </div>
@@ -675,13 +727,16 @@ onMounted(() => {
 .card-title { font-weight: 600; }
 
 .profile-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.section-title-row .section-label { margin-bottom: 0; }
 .profile-card {
   padding: 8px 10px; border-radius: 8px; cursor: pointer;
   border: 1.5px solid #e4e7ed; transition: all 0.15s; background: #fff;
 }
 .profile-card:hover { border-color: #409eff; }
 .profile-card.active { border-color: #409eff; background: #ecf5ff; }
-.profile-label { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 2px; }
+.profile-label-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
+.profile-label { font-size: 13px; font-weight: 600; color: #303133; }
 .profile-card.active .profile-label { color: #409eff; }
 .profile-desc { font-size: 11px; color: #909399; line-height: 1.3; }
 
