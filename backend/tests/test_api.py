@@ -164,6 +164,7 @@ class TestConcurrency:
         assert data["processing"] == 1
         assert data["available_slots"] == 4
         assert data["waiting_tasks"][0]["filename"] == "wait.pdf"
+        assert data["waiting_tasks"][0]["position"] == 1
 
     def test_set_valid(self, client):
         resp = client.put("/api/concurrency", json={"concurrency": 3})

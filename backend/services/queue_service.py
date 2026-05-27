@@ -25,8 +25,9 @@ def get_queue_status_impl(db: Session, concurrency: int, queue_size: int, waitin
                 "id": task.id,
                 "filename": task.original_filename,
                 "priority": task.priority or 0,
+                "position": idx,
                 "created_at": task.created_at.isoformat() if task.created_at else None,
             }
-            for task in waiting_tasks
+            for idx, task in enumerate(waiting_tasks, start=1)
         ],
     }

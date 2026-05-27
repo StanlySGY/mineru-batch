@@ -3,7 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type BatchProgressReport, type TaskItem, notifyTaskComplete } from '../api'
+import { api, type BatchProgressReport, type QueueStatus, type TaskItem, notifyTaskComplete } from '../api'
 import { isDocFile } from '../utils/file'
 import { translateError, getErrorSuggestion } from '../utils/error'
 import { formatTime, formatSize, statusTag } from '../utils/format'
@@ -53,6 +53,12 @@ const statusSummary = computed(() => {
 type BatchProgressEntry = BatchProgressReport['items'][number]
 const currentBatchStats = ref<BatchProgressEntry | null>(null)
 const currentBatchStatsLoading = ref(false)
+const queueStatus = ref<QueueStatus | null>(null)
+const queuePositionById = computed(() => {
+  const map = new Map<number, number>()
+  queueStatus.value?.waiting_tasks.forEach((task, index) => map.set(task.id, task.position || index + 1))
+  return map
+})
 const currentBatchTitle = computed(() => currentBatchStats.value?.batch_name || filterBatchId.value)
 const currentBatchIdHint = computed(() => currentBatchStats.value?.batch_name ? filterBatchId.value : '')
 const currentBatchHasFailed = computed(() => (currentBatchStats.value?.failed || 0) > 0)
@@ -405,6 +411,14 @@ async function loadCurrentBatchStats() {
   }
 }
 
+async function loadQueueStatus() {
+  try {
+    queueStatus.value = await api.getQueueStatus()
+  } catch {
+    queueStatus.value = null
+  }
+}
+
 async function loadTasks() {
   loading.value = true
   try {
@@ -417,7 +431,7 @@ async function loadTasks() {
     })
     tasks.value = res.items
     total.value = res.total
-    await loadCurrentBatchStats()
+    await Promise.all([loadCurrentBatchStats(), loadQueueStatus()])
   } finally {
     loading.value = false
     firstLoad.value = false
@@ -909,6 +923,9 @@ function checkMobile() {
         <el-tag v-else :type="statusTag[row.status]?.type" size="small">
           {{ statusTag[row.status]?.label || row.status }}
         </el-tag>
+        <el-tag v-if="row.status === 'pending' && queuePositionById.get(row.id)" type="info" size="small" effect="plain" style="margin-left:6px">
+          排队第 {{ queuePositionById.get(row.id) }} 位
+        </el-tag>
       </template>
     </el-table-column>
     <el-table-column label="格式" width="65">
@@ -953,6 +970,7 @@ function checkMobile() {
       <div class="mobile-card-top">
         <span class="mobile-card-name">{{ row.original_filename }}</span>
         <el-tag :type="statusTag[row.status]?.type" size="small">{{ statusTag[row.status]?.label || row.status }}</el-tag>
+        <el-tag v-if="row.status === 'pending' && queuePositionById.get(row.id)" type="info" size="small" effect="plain">排队第 {{ queuePositionById.get(row.id) }} 位</el-tag>
       </div>
       <div class="mobile-card-meta">
         <span>#{{ row.id }}</span>

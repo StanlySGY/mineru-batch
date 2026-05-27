@@ -197,7 +197,7 @@ export interface QueueStatus {
   pending: number
   processing: number
   available_slots: number
-  waiting_tasks: { id: number; filename: string; priority: number; created_at: string | null }[]
+  waiting_tasks: { id: number; filename: string; priority: number; position: number; created_at: string | null }[]
 }
 
 export interface FailureCategories {
