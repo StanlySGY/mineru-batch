@@ -1012,10 +1012,10 @@ function checkMobile() {
       <div class="mobile-card-time">{{ formatTime(row.created_at) }}</div>
       <div v-if="row.status === 'failed' && row.error_message" class="mobile-card-error">{{ translateError(row.error_message).slice(0, 100) }}</div>
       <div class="mobile-card-actions">
-        <el-button size="small" type="success" :icon="View" :disabled="row.status !== 'completed'" @click.stop="handlePreview(row)" circle />
-        <el-button size="small" type="primary" :icon="Download" :disabled="row.status !== 'completed'" @click.stop="handleDownload(row)" circle />
-        <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click.stop="handleRetry(row)" circle />
-        <el-button size="small" type="danger" :icon="Delete" @click.stop="handleDelete(row)" circle />
+        <el-button size="small" type="success" :icon="View" :disabled="row.status !== 'completed'" @click.stop="handlePreview(row)">预览</el-button>
+        <el-button size="small" type="primary" :icon="Download" :disabled="row.status !== 'completed'" @click.stop="handleDownload(row)">下载</el-button>
+        <el-button size="small" type="warning" :icon="RefreshRight" :disabled="row.status !== 'failed' && row.status !== 'completed'" @click.stop="handleRetry(row)">重试</el-button>
+        <el-button size="small" type="danger" :icon="Delete" @click.stop="handleDelete(row)">删除</el-button>
       </div>
     </div>
     <el-empty v-if="!loading && !tasks.length" description="暂无任务" />
@@ -1333,7 +1333,8 @@ function checkMobile() {
 .mobile-card-meta { display: flex; gap: 12px; font-size: 12px; color: #909399; margin-bottom: 4px; }
 .mobile-card-time { font-size: 12px; color: #c0c4cc; }
 .mobile-card-error { font-size: 12px; color: #f56c6c; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-card-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; }
+.mobile-card-actions { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #f0f0f0; flex-wrap: wrap; }
+.mobile-card-actions .el-button { flex: 1 1 calc(50% - 6px); margin-left: 0; }
 
 .batch-progress-dialog :deep(.el-dialog__body) { padding: 20px; }
 .batch-progress { display: flex; flex-direction: column; gap: 14px; }
