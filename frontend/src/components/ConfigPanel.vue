@@ -1,6 +1,15 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
+interface EffectiveEndpoint {
+  url: string
+  backend: string
+  serverUrl: string
+}
+
 const props = defineProps<{
   config: Record<string, any>
+  endpoints?: EffectiveEndpoint[]
 }>()
 
 const LABELS: Record<string, string> = {
@@ -21,10 +30,33 @@ const LABELS: Record<string, string> = {
   endPageId: '结束页码',
   autoConvert: '自动转PDF',
   langList: '语言',
+  mineruApi: 'MinerU 端点',
+  serverUrl: '模型服务',
 }
 
+const endpointSummary = computed(() => {
+  const endpoints = props.endpoints || []
+  if (!endpoints.length) return null
+  const urls = [...new Set(endpoints.map(ep => ep.url).filter(Boolean))]
+  const backends = [...new Set(endpoints.map(ep => ep.backend).filter(Boolean))]
+  const serverUrls = [...new Set(endpoints.map(ep => ep.serverUrl).filter(Boolean))]
+  return {
+    count: endpoints.length,
+    mineruApi: urls.length === 1 ? urls[0] : `多节点轮询（${urls.length} 个）`,
+    backend: backends.length === 1 ? backends[0] : `多后端（${backends.length} 种）`,
+    serverUrl: serverUrls.length === 1 ? serverUrls[0] : `多模型服务（${serverUrls.length} 个）`,
+  }
+})
+
+const effectiveCoreConfig = computed<Record<string, any>>(() => ({
+  ...props.config,
+  backend: endpointSummary.value?.backend ?? props.config.backend,
+  mineruApi: endpointSummary.value?.mineruApi ?? props.config.mineruApi,
+  serverUrl: endpointSummary.value?.serverUrl ?? props.config.serverUrl,
+}))
+
 function fmt(key: string): string {
-  const v = props.config[key]
+  const v = effectiveCoreConfig.value[key]
   if (v === undefined || v === null) return '—'
   if (typeof v === 'boolean') return ''
   if (key === 'timeout') return `${v}s`
@@ -41,10 +73,13 @@ function fmtBool(key: string): boolean {
     <div class="summary-section">
       <div class="section-title">核心参数</div>
       <div class="summary-grid">
-        <div v-for="k in ['backend','parseMethod','outputFormat','timeout']" :key="k" class="summary-item">
+        <div v-for="k in ['mineruApi','backend','serverUrl','parseMethod','outputFormat','timeout']" :key="k" class="summary-item">
           <span class="summary-label">{{ LABELS[k] }}</span>
           <span class="summary-value">{{ fmt(k) }}</span>
         </div>
+      </div>
+      <div class="section-tip">
+        当前摘要为实际上传会话配置：全局默认 + 解析场景覆盖；节点参数以本次选中的可用节点为准。
       </div>
     </div>
 
@@ -92,6 +127,7 @@ function fmtBool(key: string): boolean {
 .summary-item { display: flex; flex-direction: column; gap: 1px; }
 .summary-label { font-size: 11px; color: #909399; }
 .summary-value { font-size: 13px; color: #303133; font-weight: 500; word-break: break-all; }
+.section-tip { margin-top: 8px; font-size: 11px; line-height: 1.5; color: #909399; }
 .toggle-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .toggle-tag { font-size: 12px; }
 .sec-meta .meta-row { display: flex; gap: 24px; }

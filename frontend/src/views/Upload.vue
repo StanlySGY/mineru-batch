@@ -601,7 +601,7 @@ onMounted(() => {
         </div>
       </div>
 
-      <ConfigPanel :config="sessionConfig" />
+      <ConfigPanel :config="sessionConfig" :endpoints="selectedAvailableEndpoints" />
 
       <div v-if="uploading" class="card-section">
         <el-progress :percentage="uploadProgress" :stroke-width="10" striped striped-flow />
