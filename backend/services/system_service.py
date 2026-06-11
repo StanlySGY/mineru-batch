@@ -12,7 +12,7 @@ async def test_connection_impl(body: dict | None, validate_url_fn, allow_private
         try:
             safe_mineru_api = validate_url_fn(mineru_api, "mineru_api", allow_private=allow_private)
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(safe_mineru_api.replace("/file_parse", "/"))
+                resp = await client.post(safe_mineru_api)
                 results["mineru"] = {"ok": resp.status_code < 500, "status": resp.status_code}
         except Exception as e:
             results["mineru"] = {"ok": False, "error": str(e)}

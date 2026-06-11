@@ -14,7 +14,9 @@ async def check_node_health_impl(settings: dict, validate_url_fn, allow_private:
         try:
             url = validate_url_fn(ep.get("url"), "MinerU endpoint", allow_private=allow_private)
             async with httpx.AsyncClient(timeout=5) as client:
-                resp = await client.get(url.replace("/file_parse", "/"))
+                # POST to /file_parse without files — MinerU returns 4xx (param error) when healthy,
+                # rather than checking the root path which may not respond.
+                resp = await client.post(url)
             latency = int((time.perf_counter() - started) * 1000)
             ok = resp.status_code < 500
             nodes.append({
