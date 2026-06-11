@@ -7,6 +7,7 @@ import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
 import type { MineruEndpoint } from '../stores/config'
 import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
+import { classifyNodeLatency, isNodeAvailable, type NodePing } from '../utils/nodeHealth'
 import { useRouter } from 'vue-router'
 import type { UploadUserFile } from 'element-plus'
 import ConfigPanel from '../components/ConfigPanel.vue'
@@ -105,14 +106,14 @@ const sessionConfig = computed(() => ({
 }))
 
 // 每批上传独立选择的节点列表，不从 store 持久化
-const nodePings = ref<Record<string, { latency: number | null; status: 'green' | 'yellow' | 'red' | 'testing' }>>({})
+const nodePings = ref<Record<string, NodePing>>({})
 
 const selectedEndpoints = ref<MineruEndpoint[]>(
   cfg.mineruEndpoints.value.filter(e => e.enabled)
 )
 
 const enabledEndpoints = computed(() => cfg.mineruEndpoints.value.filter(e => e.enabled))
-const selectedAvailableEndpoints = computed(() => selectedEndpoints.value.filter(ep => ep.enabled && nodePings.value[ep.url]?.status !== 'red'))
+const selectedAvailableEndpoints = computed(() => selectedEndpoints.value.filter(ep => ep.enabled && isNodeAvailable(nodePings.value[ep.url])))
 const selectedUnavailableCount = computed(() => selectedEndpoints.value.length - selectedAvailableEndpoints.value.length)
 const canStartUpload = computed(() => !uploading.value && fileList.value.length > 0 && selectedAvailableEndpoints.value.length > 0)
 
@@ -417,11 +418,7 @@ async function pingAllNodes() {
       const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
       const elapsed = Date.now() - startTime
       if (res.ok) {
-        let status: 'green' | 'yellow' | 'red' = 'green'
-        if (elapsed < 150) status = 'green'
-        else if (elapsed < 800) status = 'yellow'
-        else status = 'red'
-        nodePings.value[ep.url] = { latency: elapsed, status }
+        nodePings.value[ep.url] = { latency: elapsed, status: classifyNodeLatency(elapsed) }
       } else {
         nodePings.value[ep.url] = { latency: null, status: 'red' }
       }

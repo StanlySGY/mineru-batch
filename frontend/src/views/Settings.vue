@@ -4,6 +4,7 @@ import { Connection, Plus, Delete, Download, Upload } from '@element-plus/icons-
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useConfig } from '../stores/config'
 import { formatSize as formatStorage } from '../utils/format'
+import { classifyNodeLatency, type NodePing } from '../utils/nodeHealth'
 import { api } from '../api'
 import type { ServerSettings } from '../api'
 
@@ -11,7 +12,7 @@ const cfg = useConfig()
 
 const testing = ref<number | null>(null)
 const testingAll = ref(false)
-const nodePings = ref<Record<number, { latency: number | null; status: 'green' | 'yellow' | 'red' | 'testing' }>>({})
+const nodePings = ref<Record<number, NodePing>>({})
 const concurrency = ref(5)
 const storage = ref<{ uploads: number; outputs: number; converted: number; database: number; total: number } | null>(null)
 const savingSettings = ref(false)
@@ -75,11 +76,7 @@ async function handleTestEndpoint(idx: number) {
     const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
     const elapsed = Date.now() - start
     if (res.ok) {
-      let status: 'green' | 'yellow' | 'red' = 'green'
-      if (elapsed < 150) status = 'green'
-      else if (elapsed < 800) status = 'yellow'
-      else status = 'red'
-      nodePings.value[idx] = { latency: elapsed, status }
+      nodePings.value[idx] = { latency: elapsed, status: classifyNodeLatency(elapsed) }
       ElMessage.success(`节点 ${idx + 1} 连接正常 (${elapsed}ms)`)
     } else {
       nodePings.value[idx] = { latency: null, status: 'red' }
@@ -107,11 +104,7 @@ async function handleTestAllEndpoints() {
         const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
         const elapsed = Date.now() - start
         if (res.ok) {
-          let status: 'green' | 'yellow' | 'red' = 'green'
-          if (elapsed < 150) status = 'green'
-          else if (elapsed < 800) status = 'yellow'
-          else status = 'red'
-          nodePings.value[idx] = { latency: elapsed, status }
+          nodePings.value[idx] = { latency: elapsed, status: classifyNodeLatency(elapsed) }
         } else {
           nodePings.value[idx] = { latency: null, status: 'red' }
         }
