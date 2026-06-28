@@ -8,7 +8,7 @@ import asyncio
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from models import FileTask, TaskStatus, add_log
+from models import FileTask, TaskStatus, add_log, _iso
 
 
 def _parse_id_list(ids: str) -> list[int]:
@@ -254,7 +254,7 @@ def _build_markdown_export_plan_for_tasks(tasks: list[FileTask], selected_count:
             "markdown_bytes": markdown_bytes,
             "parts": len(parts),
             "split": len(parts) > 1,
-            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "completed_at": _iso(task.completed_at),
         })
     if not files:
         raise HTTPException(404, "No Markdown outputs found on disk")

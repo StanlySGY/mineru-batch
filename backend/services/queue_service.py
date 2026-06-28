@@ -1,7 +1,7 @@
 """Queue service — business logic for queue status reporting."""
 from sqlalchemy.orm import Session
 
-from models import FileTask, TaskStatus
+from models import FileTask, TaskStatus, _iso
 
 
 def get_queue_status_impl(db: Session, concurrency: int, queue_size: int, waiting_limit: int = 5) -> dict:
@@ -26,7 +26,7 @@ def get_queue_status_impl(db: Session, concurrency: int, queue_size: int, waitin
                 "filename": task.original_filename,
                 "priority": task.priority or 0,
                 "position": idx,
-                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "created_at": _iso(task.created_at),
             }
             for idx, task in enumerate(waiting_tasks, start=1)
         ],

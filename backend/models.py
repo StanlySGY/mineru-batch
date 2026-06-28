@@ -9,6 +9,14 @@ import enum
 Base = declarative_base()
 
 
+def _iso(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 class TaskStatus(str, enum.Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -42,8 +50,8 @@ class Batch(Base):
             "batch_id": self.batch_id,
             "batch_name": self.name,
             "archived": bool(self.archived),
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "created_at": _iso(self.created_at),
+            "updated_at": _iso(self.updated_at),
         }
 
 
@@ -58,11 +66,9 @@ class FileTask(Base):
     pdf_path = Column(String(1024), nullable=True)
     timeout = Column(Integer, default=600)
     auto_convert_doc = Column(Boolean, default=True)
-    # MinerU connection
     mineru_api = Column(String(512), default="http://localhost:8086/file_parse")
     backend = Column(String(128), default="hybrid-http-client")
     server_url = Column(String(512), default="http://localhost:6002/v1")
-    # MinerU parse options
     parse_method = Column(String(64), default="auto")
     lang_list = Column(String(128), default="ch")
     formula_enable = Column(Boolean, default=True)
@@ -80,8 +86,7 @@ class FileTask(Base):
     webhook_url = Column(String(1024), nullable=True)
     batch_id = Column(String(64), nullable=True, index=True)
     batch_name = Column(String(256), nullable=True)
-    priority = Column(Integer, default=0, index=True)  # 0=普通, 1=高, 2=紧急
-    # output
+    priority = Column(Integer, default=0, index=True)
     output_format = Column(Enum(OutputFormat), default=OutputFormat.MD)
     status = Column(Enum(TaskStatus), default=TaskStatus.PENDING, index=True)
     output_path = Column(String(1024), nullable=True)
@@ -105,7 +110,7 @@ class FileTask(Base):
             elif isinstance(col.type, Enum):
                 result[col.name] = val.value
             elif isinstance(col.type, DateTime):
-                result[col.name] = val.isoformat()
+                result[col.name] = _iso(val)
             else:
                 result[col.name] = val
         return result
@@ -138,7 +143,7 @@ class ProcessLog(Base):
             "level": self.level.value if self.level else None,
             "message": self.message,
             "detail": self.detail,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": _iso(self.created_at),
         }
 
 

@@ -392,7 +392,7 @@ async function handleUpload() {
       requestNotificationPermission()
       fileList.value = []
       batchName.value = ''
-      router.push({ path: '/tasks', query: { batch_id: batchId } })
+      router.push('/tasks')
     }
   } catch (e: any) {
     if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {

@@ -2,7 +2,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from models import Batch, FileTask
+from models import Batch, FileTask, _iso
 
 
 def _fallback_batch_names(db: Session, batch_ids: list[str]) -> dict[str, str]:
@@ -40,13 +40,13 @@ def get_batch_progress_impl(db: Session, limit: int = 20, batch_id: str | None =
             "processing": 0,
             "completed": 0,
             "failed": 0,
-            "latest_at": latest.isoformat() if latest else None,
+            "latest_at": _iso(latest),
         })
         key = status.value if status else "pending"
         item[key] = count
         item["total"] += count
-        if latest and (not item["latest_at"] or latest.isoformat() > item["latest_at"]):
-            item["latest_at"] = latest.isoformat()
+        if latest and (not item["latest_at"] or _iso(latest) > item["latest_at"]):
+            item["latest_at"] = _iso(latest)
     items = [item for item in batches.values() if include_archived or not item.get("archived")]
     for item in items:
         item["progress"] = round(item["completed"] / item["total"] * 100, 1) if item["total"] else 0

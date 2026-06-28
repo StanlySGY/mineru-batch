@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 from models import (
     Batch, FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, AppSetting,
-    get_db, SessionLocal, add_log,
+    get_db, SessionLocal, add_log, _iso,
 )
 from error_codes import ErrorCode, with_code
 from services.upload_service import (
@@ -729,7 +729,7 @@ async def get_batch(batch_id: str, db: Session = Depends(get_db)):
         "completed": 0,
         "failed": 0,
         "progress": 0,
-        "latest_at": batch.updated_at.isoformat() if batch.updated_at else None,
+        "latest_at": _iso(batch.updated_at),
     }
 
 
@@ -760,7 +760,7 @@ async def update_batch(batch_id: str, body: dict, db: Session = Depends(get_db),
         "completed": 0,
         "failed": 0,
         "progress": 0,
-        "latest_at": batch.updated_at.isoformat() if batch.updated_at else None,
+        "latest_at": _iso(batch.updated_at),
     }
 
 

@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from sqlalchemy.orm import Session
-from models import ProcessLog, FileTask, ProcessLog as ProcessLogModel
+from models import ProcessLog, FileTask, ProcessLog as ProcessLogModel, _iso
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
@@ -75,7 +75,7 @@ def get_grouped_logs_impl(
             "task_id": tid,
             "filename": task.original_filename if task else f"Task#{tid}",
             "status": task.status.value if task else "unknown",
-            "created_at": task.created_at.isoformat() if task and task.created_at else None,
+            "created_at": _iso(task.created_at) if task else None,
             "logs": [l.to_dict() for l in logs_by_task.get(tid, [])],
         })
     return {"total": total, "items": groups}

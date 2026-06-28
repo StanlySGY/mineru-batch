@@ -1,7 +1,7 @@
 """Report service — business logic for statistics and report operations."""
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from models import FileTask, TaskStatus
+from models import FileTask, _iso, TaskStatus
 
 
 def classify_failure_reason(message: str | None) -> str:
@@ -78,8 +78,8 @@ def get_quality_report_impl(db: Session, stats: dict) -> dict:
                 "id": t.id,
                 "filename": t.original_filename,
                 "error_message": t.error_message,
-                "created_at": t.created_at.isoformat() if t.created_at else None,
-                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                "created_at": _iso(t.created_at),
+                "completed_at": _iso(t.completed_at),
             }
             for t in recent_failed
         ],
