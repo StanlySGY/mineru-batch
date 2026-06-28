@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
-import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, DocumentCopy, ArrowUp, ArrowDown, MagicStick } from '@element-plus/icons-vue'
+import { Download, Delete, RefreshRight, Search, View, Switch, CircleClose, DocumentCopy, ArrowUp, ArrowDown, MagicStick, MoreFilled } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type BatchProgressReport, type QueueStatus, type TaskItem, notifyTaskComplete } from '../api'
@@ -868,27 +868,35 @@ function checkMobile() {
           <el-option label="已完成" value="completed" />
           <el-option label="失败" value="failed" />
         </el-select>
-        <el-button v-if="selectedIds.length" type="danger" size="small" plain :icon="Delete" @click="handleBatchDelete">
-          删除选中 ({{ selectedIds.length }})
-        </el-button>
-        <el-button v-if="selectedHasRetryable" type="warning" size="small" plain :icon="RefreshRight" @click="handleBatchRetry">
-          重试选中
-        </el-button>
-        <el-button v-if="selectedHasConvertible" type="success" size="small" plain :icon="Switch" @click="handleBatchConvert">
-          转换选中
-        </el-button>
-        <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
-          下载选中
-        </el-button>
-        <el-tooltip v-if="selectedHasDownloadable" content="导出可直接拖入 easy-dataset 的 Markdown 文件" placement="top">
-          <el-button type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
-            导出 Markdown
+        <template v-if="selectedIds.length">
+          <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
+            下载选中
           </el-button>
-        </el-tooltip>
-        <el-divider v-if="selectedIds.length" direction="vertical" />
-        <el-button size="small" plain :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-button>
-        <el-button size="small" plain :icon="Switch" @click="handleConvertAllDocs">转换当前页文档</el-button>
-        <el-button size="small" plain :icon="DocumentCopy" @click="exportCSV">导出 CSV</el-button>
+          <el-tooltip v-if="selectedHasDownloadable" content="导出可直接拖入 easy-dataset 的 Markdown 文件" placement="top">
+            <el-button type="success" size="small" plain :icon="Download" @click="handleBatchMarkdownDownload">
+              导出 MD
+            </el-button>
+          </el-tooltip>
+          <el-button v-if="selectedHasRetryable" type="warning" size="small" plain :icon="RefreshRight" @click="handleBatchRetry">
+            重试选中
+          </el-button>
+          <el-button v-if="selectedHasConvertible" type="success" size="small" plain :icon="Switch" @click="handleBatchConvert">
+            转换选中
+          </el-button>
+          <el-button type="danger" size="small" plain :icon="Delete" @click="handleBatchDelete">
+            删除 ({{ selectedIds.length }})
+          </el-button>
+        </template>
+        <el-dropdown trigger="click" size="small">
+          <el-button size="small" plain :icon="MoreFilled">更多</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item :icon="RefreshRight" @click="handleRetryAllFailed">重试当前页失败</el-dropdown-item>
+              <el-dropdown-item :icon="Switch" @click="handleConvertAllDocs">转换当前页文档</el-dropdown-item>
+              <el-dropdown-item :icon="DocumentCopy" @click="exportCSV">导出 CSV</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
     </div>
   </template>

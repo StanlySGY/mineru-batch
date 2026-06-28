@@ -404,10 +404,22 @@ async function handleUpload() {
   }
 }
 
+function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    e.preventDefault()
+    if (canStartUpload.value) handleUpload()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
 onUnmounted(() => {
   if (uploading.value && abortController.value) {
     abortController.value.abort()
   }
+  window.removeEventListener('keydown', handleKeydown)
 })
 
 async function pingAllNodes() {
@@ -614,7 +626,7 @@ onMounted(() => {
 
       <div class="card-section">
         <el-button type="primary" size="large" :loading="uploading" :disabled="!canStartUpload" @click="handleUpload" class="submit-btn">
-          开始解析
+          开始解析 <span class="shortcut-hint">Ctrl+↵</span>
         </el-button>
       </div>
     </el-card>
@@ -631,6 +643,12 @@ onMounted(() => {
 .upload-card { border-radius: 10px; }
 .config-card { border-radius: 10px; overflow-y: auto; }
 .submit-btn { width: 100%; margin-top: 8px; }
+.shortcut-hint {
+  font-size: 11px;
+  opacity: 0.6;
+  margin-left: 6px;
+  font-weight: 400;
+}
 .upload-drop-zone {
   position: relative;
   border: 2px dashed #dcdfe6;

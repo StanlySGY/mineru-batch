@@ -509,7 +509,7 @@ export const api = {
 
   async testConnection(params: { mineru_api: string; server_url: string }) {
     const { data } = await http.post('/test-connection', params)
-    return data as { ok: boolean; detail?: string; error?: string }
+    return data as { ok: boolean; detail?: { mineru?: { ok: boolean; status?: number; error?: string }; server?: { ok: boolean; status?: number; error?: string } }; error?: string }
   },
 
   async getStorage() {

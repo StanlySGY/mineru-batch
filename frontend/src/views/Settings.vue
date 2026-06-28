@@ -76,10 +76,10 @@ async function handleTestEndpoint(idx: number) {
     const res = await api.testConnection({ mineru_api: ep.url, server_url: ep.serverUrl })
     const elapsed = Date.now() - start
     if (res.ok) {
-      nodePings.value[idx] = { latency: elapsed, status: classifyNodeLatency(elapsed) }
+      nodePings.value[idx] = { latency: elapsed, status: classifyNodeLatency(elapsed), mineru: res.detail?.mineru, server: res.detail?.server }
       ElMessage.success(`节点 ${idx + 1} 连接正常 (${elapsed}ms)`)
     } else {
-      nodePings.value[idx] = { latency: null, status: 'red' }
+      nodePings.value[idx] = { latency: null, status: 'red', mineru: res.detail?.mineru, server: res.detail?.server }
       ElMessage.error(`节点 ${idx + 1} 异常: ${res.error || '未知错误'}`)
     }
   } catch (e: any) {
@@ -290,6 +290,10 @@ const paramTable = [
               <template v-else-if="nodePings[idx].latency !== null">{{ nodePings[idx].latency }}ms</template>
               <template v-else>不可用</template>
             </span>
+          </div>
+          <div v-if="ep.backend === 'vlm-http-client' && nodePings[idx] && nodePings[idx].status !== 'testing' && nodePings[idx].server" class="vlm-status-badge" :class="nodePings[idx].server.ok ? 'ok' : 'fail'">
+            <span class="ping-dot" />
+            <span class="ping-text">VLM {{ nodePings[idx].server.ok ? '正常' : '异常' }}</span>
           </div>
           <div class="endpoint-actions">
             <el-button size="small" :icon="Connection" :loading="testing === idx" @click="handleTestEndpoint(idx)" />
@@ -514,6 +518,25 @@ const paramTable = [
   color: #e6a23c;
 }
 .node-ping-badge.red {
+  background: #fde2e2;
+  color: #f56c6c;
+}
+.vlm-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #f4f4f5;
+  color: #909399;
+  flex-shrink: 0;
+}
+.vlm-status-badge.ok {
+  background: #e1f3d8;
+  color: #67c23a;
+}
+.vlm-status-badge.fail {
   background: #fde2e2;
   color: #f56c6c;
 }
