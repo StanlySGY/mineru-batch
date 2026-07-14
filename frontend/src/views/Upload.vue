@@ -6,7 +6,7 @@ import { api } from '../api'
 import { requestNotificationPermission } from '../api'
 import { useConfig } from '../stores/config'
 import type { MineruEndpoint } from '../stores/config'
-import { isDocFile, ALLOWED_EXTENSIONS, MAX_FILE_SIZE_MB } from '../utils/file'
+import { isDocFile, ALLOWED_EXTENSIONS } from '../utils/file'
 import { classifyNodeLatency, isNodeAvailable, type NodePing } from '../utils/nodeHealth'
 import { useRouter } from 'vue-router'
 import type { UploadUserFile } from 'element-plus'
@@ -202,9 +202,9 @@ function addFiles(files: File[]) {
     return
   }
   
-  const oversized = allowed.filter(f => f.size > MAX_FILE_SIZE_MB * 1024 * 1024)
+  const oversized = allowed.filter(f => f.size > cfg.state.maxFileSize * 1024 * 1024)
   if (oversized.length > 0) {
-    ElMessage.error(`有 ${oversized.length} 个文件超过了 ${MAX_FILE_SIZE_MB}MB 的大小限制`)
+    ElMessage.error(`有 ${oversized.length} 个文件超过了 ${cfg.state.maxFileSize}MB 的大小限制`)
     return
   }
 

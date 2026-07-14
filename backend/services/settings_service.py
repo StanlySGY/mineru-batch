@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
         "endPageId": 99999,
         "timeout": 600,
         "autoConvert": True,
+        "maxFileSize": 200,
     },
     "mineruEndpoints": [
         {
@@ -144,10 +145,13 @@ def validate_settings_payload(payload: dict, current: dict | None = None) -> dic
         defaults["timeout"] = int(defaults.get("timeout", 600))
         defaults["startPageId"] = int(defaults.get("startPageId", 0))
         defaults["endPageId"] = int(defaults.get("endPageId", 99999))
+        defaults["maxFileSize"] = int(defaults.get("maxFileSize", 200))
     except (TypeError, ValueError):
-        raise HTTPException(400, "timeout and page range must be integers") from None
+        raise HTTPException(400, "timeout, page range and maxFileSize must be integers") from None
     if defaults["timeout"] < 10 or defaults["timeout"] > 7200:
         raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
+    if defaults["maxFileSize"] < 1 or defaults["maxFileSize"] > 2048:
+        raise HTTPException(400, "maxFileSize must be between 1 and 2048 MB")
     if defaults["startPageId"] < 0 or defaults["endPageId"] < defaults["startPageId"]:
         raise HTTPException(400, "page range is invalid")
     if defaults["outputFormat"] not in ("md", "txt", "html"):

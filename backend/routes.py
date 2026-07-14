@@ -384,19 +384,6 @@ def _safe_extract_zip(zip_path: str, dest_dir: str):
         zf.extractall(dest)
 
 
-async def _save_upload_stream(file: UploadFile, save_path: str) -> int:
-    size = 0
-    async with aiofiles.open(save_path, "wb") as out:
-        while chunk := await file.read(1024 * 1024):
-            size += len(chunk)
-            if size > MAX_FILE_SIZE:
-                await out.close()
-                _safe_remove(save_path)
-                raise HTTPException(400, f"文件 {file.filename} 超过大小限制({MAX_FILE_SIZE // 1024 // 1024}MB)")
-            await out.write(chunk)
-    return size
-
-
 def _is_doc_file(filename: str) -> bool:
     return is_doc_file(filename)
 

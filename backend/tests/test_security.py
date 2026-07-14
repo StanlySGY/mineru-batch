@@ -155,7 +155,8 @@ class TestUploadValidation:
 
     def test_rejects_oversized_file(self, client):
         big = b"x" * 101
-        with patch("services.upload_service.MAX_FILE_SIZE", 100):
+        mock_settings = {"defaults": {"maxFileSize": 0}, "mineruEndpoints": []}
+        with patch("services.settings_service.get_settings_from_db", return_value=mock_settings):
             resp = client.post("/api/upload", files=[
                 ("files", ("big.pdf", big, "application/pdf")),
             ])

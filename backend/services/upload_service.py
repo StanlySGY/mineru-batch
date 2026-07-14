@@ -109,19 +109,19 @@ def generate_save_path(file: UploadFile, upload_dir: str) -> tuple[str, str]:
     return saved_name, save_path
 
 
-async def save_upload_stream(file: UploadFile, save_path: str) -> int:
+async def save_upload_stream(file: UploadFile, save_path: str, max_file_size: int = MAX_FILE_SIZE) -> int:
     """Stream file to disk, enforce size limit. Returns file size in bytes."""
     size = 0
     async with aiofiles.open(save_path, "wb") as out:
         while chunk := await file.read(1024 * 1024):
             size += len(chunk)
-            if size > MAX_FILE_SIZE:
+            if size > max_file_size:
                 await out.close()
                 try:
                     os.remove(save_path)
                 except OSError:
                     pass
-                raise HTTPException(400, f"文件 {file.filename} 超过大小限制({MAX_FILE_SIZE // 1024 // 1024}MB)")
+                raise HTTPException(400, f"文件 {file.filename} 超过大小限制({max_file_size // 1024 // 1024}MB)")
             await out.write(chunk)
     return size
 
@@ -234,6 +234,10 @@ async def upload_files_impl(
         output_format, start_page_id, end_page_id, timeout, priority
     )
 
+    from services.settings_service import get_settings_from_db
+    _settings = get_settings_from_db(db)
+    _max_file_size = _settings.get("defaults", {}).get("maxFileSize", 200) * 1024 * 1024
+
     upload_batch_id, upload_batch_name = prepare_batch_info(batch_id, batch_name)
 
     endpoints_list = None
@@ -261,7 +265,7 @@ async def upload_files_impl(
     batch_upserted = False
     for idx, file in enumerate(files):
         saved_name, save_path = generate_save_path(file, upload_dir)
-        file_size = await save_upload_stream(file, save_path)
+        file_size = await save_upload_stream(file, save_path, max_file_size=_max_file_size)
         if not batch_upserted:
             upsert_batch(db, upload_batch_id, upload_batch_name)
             batch_upserted = True

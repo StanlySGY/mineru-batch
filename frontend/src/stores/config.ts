@@ -29,6 +29,7 @@ export interface ConfigState {
   endPageId: number
   timeout: number
   autoConvert: boolean
+  maxFileSize: number
   [key: string]: string | number | boolean
 }
 
@@ -42,6 +43,7 @@ const LS = {
   returnImages: 'cfg_return_images', responseFormatZip: 'cfg_response_format_zip',
   replaceImageUrl: 'cfg_replace_image_url', startPageId: 'cfg_start_page_id',
   endPageId: 'cfg_end_page_id', timeout: 'cfg_timeout', autoConvert: 'cfg_auto_convert',
+  maxFileSize: 'cfg_max_file_size',
 } as const
 
 // Typed defaults — single source of truth
@@ -65,6 +67,7 @@ const DEFAULTS = {
   endPageId: 99999,
   timeout: 600,
   autoConvert: true,
+  maxFileSize: 200,
 } as const
 
 const state = reactive<ConfigState>({ ...DEFAULTS })

@@ -367,6 +367,11 @@ const paramTable = [
         <div class="form-tip">同时处理的任务数（1~20），增大可提高吞吐但会占用更多资源</div>
       </el-form-item>
 
+      <el-form-item label="上传文件大小限制 (MB)">
+        <el-input-number v-model="cfg.state.maxFileSize" :min="1" :max="2048" :step="10" />
+        <div class="form-tip">单个文件最大体积，超出将拒绝上传（1~2048 MB）</div>
+      </el-form-item>
+
       <el-divider content-position="left">开关选项</el-divider>
 
       <div class="switch-grid">
