@@ -6,7 +6,7 @@ VERSION=$(cat VERSION | tr -d ' \t\n\r')
 OUTPUT="${IMAGE_NAME}-${VERSION}.tar.gz"
 
 echo "=== 构建镜像: ${IMAGE_NAME}:${VERSION} ==="
-docker build -t "${IMAGE_NAME}:${VERSION}" .
+DOCKER_BUILDKIT=0 docker build -t "${IMAGE_NAME}:${VERSION}" .
 
 echo ""
 echo "=== 导出镜像: ${OUTPUT} ==="
