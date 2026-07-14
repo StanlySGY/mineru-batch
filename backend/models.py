@@ -1,10 +1,23 @@
+import enum
 import os
 import time
-from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, Boolean, ForeignKey
-from sqlalchemy import create_engine, event, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-import enum
+from datetime import UTC, datetime
+
+from sqlalchemy import (
+    Boolean,
+    Column,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    create_engine,
+    event,
+    inspect,
+    text,
+)
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 Base = declarative_base()
 
@@ -13,24 +26,24 @@ def _iso(dt: datetime | None) -> str | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.isoformat()
 
 
-class TaskStatus(str, enum.Enum):
+class TaskStatus(enum.StrEnum):
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
-class OutputFormat(str, enum.Enum):
+class OutputFormat(enum.StrEnum):
     MD = "md"
     TXT = "txt"
     HTML = "html"
 
 
-class LogLevel(str, enum.Enum):
+class LogLevel(enum.StrEnum):
     INFO = "info"
     WARN = "warn"
     ERROR = "error"
@@ -42,8 +55,8 @@ class Batch(Base):
     batch_id = Column(String(64), primary_key=True)
     name = Column(String(256), nullable=True)
     archived = Column(Boolean, default=False, index=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     def to_dict(self):
         return {
@@ -93,8 +106,8 @@ class FileTask(Base):
     error_message = Column(Text, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
     logs = relationship("ProcessLog", backref="task", cascade="all, delete-orphan", passive_deletes=True)
 
@@ -122,8 +135,8 @@ class AppSetting(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     key = Column(String(128), unique=True, nullable=False, index=True)
     value_json = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))
 
 
 class ProcessLog(Base):
@@ -134,7 +147,7 @@ class ProcessLog(Base):
     level = Column(Enum(LogLevel), default=LogLevel.INFO, index=True)
     message = Column(Text, nullable=False)
     detail = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC), index=True)
 
     def to_dict(self):
         return {

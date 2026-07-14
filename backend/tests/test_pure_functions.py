@@ -1,7 +1,11 @@
+from models import FileTask
 from routes import (
-    _sanitize_filename, _is_doc_file, _build_mineru_form, _pick_endpoint, _extract_md_from_result,
+    _build_mineru_form,
+    _extract_md_from_result,
+    _is_doc_file,
+    _pick_endpoint,
+    _sanitize_filename,
 )
-from models import FileTask, OutputFormat, TaskStatus
 from services import log_service
 from services.log_service import get_app_log_file
 

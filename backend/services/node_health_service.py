@@ -36,7 +36,7 @@ async def check_node_health_impl(settings: dict, validate_url_fn, allow_private:
         except Exception as exc:
             entry.update(ok=False, latency_ms=None, status="red", error=str(exc))
 
-        if backend == "vlm-http-client" and server_url:
+        if backend in ("vlm-http-client", "hybrid-http-client") and server_url:
             try:
                 vlm_ok, vlm_latency, vlm_status = await _check_url(server_url, validate_url_fn, allow_private)
             except Exception as exc:

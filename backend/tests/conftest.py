@@ -1,15 +1,14 @@
-import os
 import asyncio
-import pytest
 from unittest.mock import patch
+
+import pytest
+import routes as routes_module
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from models import Base, FileTask, OutputFormat, TaskStatus, get_db
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
-
-from models import Base, FileTask, TaskStatus, OutputFormat, get_db
-import routes as routes_module
 
 
 @pytest.fixture
@@ -37,7 +36,6 @@ def tmp_dirs(tmp_path):
     upload.mkdir()
     output.mkdir()
     convert.mkdir()
-    safe = (str(upload), str(output), str(convert))
     yield {"upload": str(upload), "output": str(output), "convert": str(convert)}
 
 

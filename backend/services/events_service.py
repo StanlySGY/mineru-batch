@@ -17,7 +17,7 @@ async def stream_task_events_impl(
             try:
                 msg = await asyncio.wait_for(q.get(), timeout=30)
                 yield f"data: {msg}\n\n"
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield ": keepalive\n\n"
     finally:
         async with sse_lock:

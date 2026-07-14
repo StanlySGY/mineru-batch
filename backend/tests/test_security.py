@@ -1,9 +1,15 @@
 import os
 import zipfile
-import pytest
 from unittest.mock import patch
+
+import pytest
 from fastapi import HTTPException
-from routes import _safe_path, _safe_extract_zip, _validate_external_url, require_admin, MAX_FILE_SIZE, ALLOWED_EXTENSIONS
+from routes import (
+    _safe_extract_zip,
+    _safe_path,
+    _validate_external_url,
+    require_admin,
+)
 
 
 class TestSafePath:

@@ -202,7 +202,7 @@ onMounted(() => {
 
 const paramTable = [
   { param: 'files', desc: '上传的文件', type: 'file' },
-  { param: 'backend', desc: '后端类型 (hybrid-http-client / vlm-http-client)', type: 'string' },
+  { param: 'backend', desc: '后端类型 (pipeline / vlm-engine / vlm-http-client / hybrid-engine / hybrid-http-client)', type: 'string' },
   { param: 'server_url', desc: '大模型推理服务地址', type: 'string' },
   { param: 'parse_method', desc: '解析方式 (auto / ocr / txt)', type: 'string' },
   { param: 'lang_list', desc: '语言列表 (ch / en / ch,en)', type: 'string' },
@@ -291,7 +291,7 @@ const paramTable = [
               <template v-else>不可用</template>
             </span>
           </div>
-          <div v-if="ep.backend === 'vlm-http-client' && nodePings[idx] && nodePings[idx].status !== 'testing' && nodePings[idx].server" class="vlm-status-badge" :class="nodePings[idx].server.ok ? 'ok' : 'fail'">
+          <div v-if="(ep.backend === 'vlm-http-client' || ep.backend === 'hybrid-http-client') && nodePings[idx] && nodePings[idx].status !== 'testing' && nodePings[idx].server" class="vlm-status-badge" :class="nodePings[idx].server.ok ? 'ok' : 'fail'">
             <span class="ping-dot" />
             <span class="ping-text">VLM {{ nodePings[idx].server.ok ? '正常' : '异常' }}</span>
           </div>
@@ -307,8 +307,11 @@ const paramTable = [
           <div class="endpoint-row">
             <el-form-item label="后端类型">
               <el-select v-model="ep.backend" style="width:100%">
-                <el-option value="hybrid-http-client" label="hybrid-http-client" />
-                <el-option value="vlm-http-client" label="vlm-http-client" />
+                <el-option value="pipeline" label="pipeline — 通用多语言，无幻觉" />
+                <el-option value="vlm-engine" label="vlm-engine — 本地 VLM，仅中英文" />
+                <el-option value="vlm-http-client" label="vlm-http-client — 远程 VLM，仅中英文" />
+                <el-option value="hybrid-engine" label="hybrid-engine — 本地混合解析，多语言" />
+                <el-option value="hybrid-http-client" label="hybrid-http-client — 远程混合解析，多语言" />
               </el-select>
             </el-form-item>
             <el-form-item label="大模型服务地址 (server_url)">

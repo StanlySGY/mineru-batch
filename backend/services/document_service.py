@@ -2,9 +2,8 @@
 import os
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
-
 from models import FileTask, add_log
+from sqlalchemy.orm import Session
 
 
 async def convert_doc_to_pdf_impl(
@@ -28,8 +27,8 @@ async def convert_doc_to_pdf_impl(
         task.pdf_path = pdf_path
         task.auto_convert_doc = True
         db.commit()
-        add_log(f"手动转换完成，开始解析", task_id=task_id)
+        add_log("手动转换完成，开始解析", task_id=task_id)
         enqueue_fn(task.id)
         return {"detail": "converted", "pdf_path": pdf_path}
     except Exception as e:
-        raise HTTPException(500, f"Conversion failed: {e}")
+        raise HTTPException(500, f"Conversion failed: {e}") from e

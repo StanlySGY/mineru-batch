@@ -1,13 +1,11 @@
 """Task service — business logic for task operations."""
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
-
 from models import FileTask, TaskStatus, add_log
-
+from sqlalchemy.orm import Session
 
 _cancelled_tasks: set[int] = set()
 _cancel_lock = threading.Lock()
@@ -39,7 +37,7 @@ def check_and_mark_cancelled(task: FileTask, db: Session, cleanup_path: str = No
         os.remove(cleanup_path)
     task.status = TaskStatus.FAILED
     task.error_message = "任务已取消"
-    task.completed_at = datetime.now(timezone.utc)
+    task.completed_at = datetime.now(UTC)
     db.commit()
     return True
 
@@ -55,9 +53,9 @@ def cancel_task_impl(task_id: int, db: Session) -> dict:
     mark_task_cancelled(task_id)
     task.status = TaskStatus.FAILED
     task.error_message = "用户取消"
-    task.completed_at = datetime.now(timezone.utc)
+    task.completed_at = datetime.now(UTC)
     db.commit()
-    add_log(f"任务已取消", task_id=task_id, level="warn")
+    add_log("任务已取消", task_id=task_id, level="warn")
     return task.to_dict()
 
 
@@ -91,7 +89,7 @@ def retry_task_impl(
         task.server_url = validate_external_url_fn(server_url, "server_url", allow_private=allow_private)
 
     db.commit()
-    add_log(f"任务重新提交", task_id=task_id)
+    add_log("任务重新提交", task_id=task_id)
 
     if enqueue_fn:
         enqueue_fn(task.id)

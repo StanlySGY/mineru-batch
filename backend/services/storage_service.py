@@ -1,10 +1,10 @@
 """Storage service — business logic for storage operations."""
-import os
 import asyncio
+import os
 import shutil
 
-from sqlalchemy.orm import Session
 from models import FileTask, TaskStatus
+from sqlalchemy.orm import Session
 
 
 async def clean_directory(dir_path: str, skip_dotfiles: bool = False) -> int:

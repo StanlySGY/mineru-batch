@@ -1,8 +1,7 @@
 """Batch report service."""
+from models import Batch, FileTask, _iso
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-
-from models import Batch, FileTask, _iso
 
 
 def _fallback_batch_names(db: Session, batch_ids: list[str]) -> dict[str, str]:

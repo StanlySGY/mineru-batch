@@ -1,6 +1,5 @@
 """System service — business logic for system operations."""
 import httpx
-from fastapi import HTTPException
 
 
 async def test_connection_impl(body: dict | None, validate_url_fn, allow_private: bool) -> dict:

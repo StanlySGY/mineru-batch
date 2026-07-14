@@ -1,23 +1,22 @@
+import asyncio
+import logging
 import os
 import subprocess
 import sys
-import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response, PlainTextResponse, JSONResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from limiter import limiter
+from models import FileTask, SessionLocal, TaskStatus, init_db
+from routes import _enqueue_task, _notify_task_change, add_log, router, start_workers
+from services.log_service import get_app_log_file
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from limiter import limiter
-
-from models import init_db, SessionLocal, FileTask, TaskStatus
-from routes import router, _notify_task_change, add_log, _enqueue_task, start_workers
-from services.log_service import get_app_log_file
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -101,7 +100,7 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(30)
             db = SessionLocal()
             try:
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 stuck = db.query(FileTask).filter(
                     FileTask.status == TaskStatus.PROCESSING,
                     FileTask.started_at.isnot(None),
@@ -114,7 +113,7 @@ async def lifespan(app: FastAPI):
                         task.error_message = f"任务超时（已运行 {int(elapsed)}s，超时 {timeout}s）"
                         task.completed_at = now
                         db.commit()
-                        add_log(f"任务超时自动取消", task_id=task.id, level="warn",
+                        add_log("任务超时自动取消", task_id=task.id, level="warn",
                                 detail=f"elapsed={int(elapsed)}s timeout={timeout}s")
                         _notify_task_change(task.id, "failed", error_message=task.error_message)
             except Exception:

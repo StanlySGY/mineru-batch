@@ -1,14 +1,13 @@
 """Batch service — business logic for batch task operations."""
-import os
+import asyncio
 import io
 import json
+import os
 import zipfile
-import asyncio
 
 from fastapi import HTTPException
+from models import FileTask, TaskStatus, _iso, add_log
 from sqlalchemy.orm import Session
-
-from models import FileTask, TaskStatus, add_log, _iso
 
 
 def _parse_id_list(ids: str) -> list[int]:
@@ -159,7 +158,7 @@ async def batch_retry_tasks_impl(db: Session, ids: str | None, batch_id: str | N
         task.output_path = None
         task.status = TaskStatus.PENDING
         task.error_message = None
-        add_log(f"批量重试", task_id=task.id)
+        add_log("批量重试", task_id=task.id)
         enqueue_fn(task.id)
     db.commit()
     return {"detail": "batch retried", "count": len(tasks)}
@@ -179,7 +178,7 @@ async def batch_convert_tasks_impl(db: Session, ids: str, is_doc_file_fn, conver
                 task.pdf_path = pdf_path
                 task.auto_convert_doc = True
                 db.commit()
-                add_log(f"批量转换完成，开始解析", task_id=task.id)
+                add_log("批量转换完成，开始解析", task_id=task.id)
                 enqueue_fn(task.id)
                 converted += 1
             except Exception as e:
@@ -234,7 +233,7 @@ def _build_markdown_export_plan_for_tasks(tasks: list[FileTask], selected_count:
         if not md_path:
             skipped += 1
             continue
-        with open(md_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(md_path, encoding="utf-8", errors="ignore") as f:
             content = f.read()
         arc_name = _unique_archive_name(_archive_markdown_name(task), used)
         parts = _split_markdown(content, max_bytes)

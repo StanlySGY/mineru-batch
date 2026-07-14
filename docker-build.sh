@@ -12,8 +12,16 @@ echo ""
 echo "=== 导出镜像: ${OUTPUT} ==="
 docker save "${IMAGE_NAME}:${VERSION}" | gzip > "${OUTPUT}"
 
-# 生成 .env 供 docker compose 自动读取
-echo "TAG=${VERSION}" > .env
+# 生成 .env 供 docker compose 自动读取（仅更新 TAG，保留其他配置）
+if [ -f .env ]; then
+  if grep -q '^TAG=' .env; then
+    sed -i "s/^TAG=.*/TAG=${VERSION}/" .env
+  else
+    echo "TAG=${VERSION}" >> .env
+  fi
+else
+  echo "TAG=${VERSION}" > .env
+fi
 
 echo ""
 echo "=== 完成 ==="

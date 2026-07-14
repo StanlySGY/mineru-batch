@@ -2,9 +2,8 @@
 import os
 from pathlib import Path
 
+from models import FileTask, ProcessLog, _iso
 from sqlalchemy.orm import Session
-from models import ProcessLog, FileTask, ProcessLog as ProcessLogModel, _iso
-
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 
@@ -34,7 +33,7 @@ def list_logs_impl(
         q = q.filter(ProcessLog.level == level)
     total = q.count()
     items = q.order_by(ProcessLog.id.desc()).offset((page - 1) * size).limit(size).all()
-    return {"total": total, "items": [l.to_dict() for l in items]}
+    return {"total": total, "items": [log.to_dict() for log in items]}
 
 
 def clear_logs_impl(db: Session) -> int:
@@ -76,6 +75,6 @@ def get_grouped_logs_impl(
             "filename": task.original_filename if task else f"Task#{tid}",
             "status": task.status.value if task else "unknown",
             "created_at": _iso(task.created_at) if task else None,
-            "logs": [l.to_dict() for l in logs_by_task.get(tid, [])],
+            "logs": [log.to_dict() for log in logs_by_task.get(tid, [])],
         })
     return {"total": total, "items": groups}

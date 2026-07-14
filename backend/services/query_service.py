@@ -2,9 +2,8 @@
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
-
 from models import FileTask
+from sqlalchemy.orm import Session
 
 
 def get_tasks_since_impl(db: Session, since: str) -> dict:
@@ -12,7 +11,7 @@ def get_tasks_since_impl(db: Session, since: str) -> dict:
     try:
         cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
     except ValueError:
-        raise HTTPException(400, "Invalid timestamp format")
+        raise HTTPException(400, "Invalid timestamp format") from None
     tasks = db.query(FileTask).filter(FileTask.updated_at >= cutoff).all()
     return {"items": [t.to_dict() for t in tasks]}
 

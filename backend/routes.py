@@ -1,71 +1,90 @@
+import asyncio
+import html
+import io
+import ipaddress
+import json
 import os
 import re
-import uuid
-import json
-import io
-import zipfile
 import shutil
+import socket
 import subprocess
 import threading
 import traceback
-import asyncio
-import ipaddress
-import socket
+import uuid
+import zipfile
+from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import quote, urlparse
+
 import aiofiles
 import httpx
-import html
-import markdown
-from pathlib import Path
-from datetime import datetime, timezone
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Query, Request, Header
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func, text
-from models import (
-    Batch, FileTask, TaskStatus, OutputFormat, ProcessLog, LogLevel, AppSetting,
-    get_db, SessionLocal, add_log, _iso,
-)
 from error_codes import ErrorCode, with_code
-from services.upload_service import (
-    parse_bool, is_doc_file, validate_upload_params, prepare_batch_info,
-    parse_relative_paths, generate_save_path, save_upload_stream, build_file_task,
-    upload_files_impl, ALLOWED_EXTENSIONS as _UPLOAD_ALLOWED_EXT, MAX_FILE_SIZE as _UPLOAD_MAX_SIZE,
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
+from models import (
+    Batch,
+    FileTask,
+    SessionLocal,
+    TaskStatus,
+    _iso,
+    add_log,
+    get_db,
 )
-from services.task_service import (
-    mark_task_cancelled, is_task_cancelled, unmark_task_cancelled, cancel_task_impl, retry_task_impl,
-    check_and_mark_cancelled,
-)
-from services.storage_service import clean_directory, clean_storage_impl, clean_completed_sources_impl
-from services.log_service import clear_logs_impl, get_app_log_file, get_grouped_logs_impl, list_logs_impl
-from services.stats_service import get_stats_trend_impl, get_filetype_stats_impl
-from services.settings_service import (
-    get_settings_from_db, sanitize_settings, validate_settings_payload, save_settings, get_endpoint_api_key,
-    export_settings_payload, import_settings_payload,
-)
-from services.report_service import get_stats_impl, get_quality_report_impl, get_failure_categories_impl
-from services.query_service import get_tasks_since_impl, list_tasks_impl, get_task_impl
-from services.batch_service import (
-    batch_delete_tasks_impl, batch_retry_tasks_impl, batch_convert_tasks_impl,
-    batch_download_tasks_impl, batch_download_markdown_tasks_impl,
-)
-from services.content_service import preview_result_impl, update_task_content_impl, download_result_impl
-from services.task_management_service import delete_task_impl, update_task_impl
-from services.system_service import test_connection_impl
-from services.document_service import convert_doc_to_pdf_impl
-from services.storage_stats_service import get_storage_stats_impl
-from services.concurrency_service import get_concurrency_impl, validate_concurrency
-from services.events_service import stream_task_events_impl
-from services.queue_service import get_queue_status_impl
-from services.node_health_service import check_node_health_impl
 from services.audit_service import audit_admin_action
-from services.rag_quality_service import get_quality_score_impl
 from services.batch_report_service import get_batch_progress_impl
+from services.batch_service import (
+    batch_convert_tasks_impl,
+    batch_delete_tasks_impl,
+    batch_download_markdown_tasks_impl,
+    batch_download_tasks_impl,
+    batch_retry_tasks_impl,
+)
+from services.concurrency_service import get_concurrency_impl, validate_concurrency
+from services.content_service import download_result_impl, preview_result_impl, update_task_content_impl
+from services.document_service import convert_doc_to_pdf_impl
+from services.events_service import stream_task_events_impl
+from services.log_service import clear_logs_impl, get_app_log_file, get_grouped_logs_impl, list_logs_impl
+from services.node_health_service import check_node_health_impl
+from services.query_service import get_task_impl, get_tasks_since_impl, list_tasks_impl
+from services.queue_service import get_queue_status_impl
+from services.rag_quality_service import get_quality_score_impl
+from services.report_service import get_failure_categories_impl, get_quality_report_impl, get_stats_impl
+from services.settings_service import (
+    export_settings_payload,
+    get_endpoint_api_key,
+    get_settings_from_db,
+    import_settings_payload,
+    sanitize_settings,
+    save_settings,
+    validate_settings_payload,
+)
+from services.stats_service import get_filetype_stats_impl, get_stats_trend_impl
+from services.storage_service import clean_completed_sources_impl, clean_storage_impl
+from services.storage_stats_service import get_storage_stats_impl
+from services.system_service import test_connection_impl
+from services.task_management_service import delete_task_impl, update_task_impl
+from services.task_service import (
+    cancel_task_impl,
+    check_and_mark_cancelled,
+    retry_task_impl,
+    unmark_task_cancelled,
+)
+from services.upload_service import (
+    ALLOWED_EXTENSIONS as _UPLOAD_ALLOWED_EXT,
+)
+from services.upload_service import (
+    MAX_FILE_SIZE as _UPLOAD_MAX_SIZE,
+)
+from services.upload_service import (
+    is_doc_file,
+    upload_files_impl,
+)
+from sqlalchemy.orm import Session
 
 router = APIRouter()
 
 # 限流：上传接口 10次/分钟
-from limiter import limiter as _limiter
+from limiter import limiter as _limiter  # noqa: E402
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads"))
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", os.path.join(os.path.dirname(os.path.dirname(__file__)), "outputs"))
@@ -115,7 +134,7 @@ def _find_content_in_bundle(bundle_dir: str) -> str:
     for root, _, files in os.walk(bundle_dir):
         for fn in files:
             if fn.endswith(".md") or fn.endswith(".txt"):
-                with open(os.path.join(root, fn), "r", encoding="utf-8") as f:
+                with open(os.path.join(root, fn), encoding="utf-8") as f:
                     return f.read()
     return ""
 
@@ -150,7 +169,7 @@ def _validate_external_url(url: str, label: str = "URL", allow_private: bool = F
     except HTTPException:
         raise
     except (OSError, ValueError):
-        raise HTTPException(400, f"{label} host cannot be resolved")
+        raise HTTPException(400, f"{label} host cannot be resolved") from None
     return value
 
 
@@ -232,7 +251,7 @@ def _read_output_text(path: str) -> str:
                     break
             if target != safe:
                 break
-    with open(target, "r", encoding="utf-8", errors="ignore") as f:
+    with open(target, encoding="utf-8", errors="ignore") as f:
         return f.read()
 
 
@@ -298,9 +317,10 @@ def _validate_endpoint(ep: dict) -> dict:
     url = _validate_external_url(ep.get("url"), "MinerU endpoint", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     server_url_raw = str(ep.get("serverUrl") or "").strip()
     server_url = _validate_external_url(server_url_raw, "serverUrl", allow_private=ALLOW_PRIVATE_ENDPOINTS) if server_url_raw else ""
+    ALLOWED_BACKENDS = ("pipeline", "vlm-engine", "vlm-http-client", "hybrid-engine", "hybrid-http-client")
     backend = str(ep.get("backend") or "hybrid-http-client").strip()
-    if backend not in ("hybrid-http-client", "vlm-http-client"):
-        raise HTTPException(400, "backend is invalid")
+    if backend not in ALLOWED_BACKENDS:
+        raise HTTPException(400, f"backend is invalid, allowed: {', '.join(ALLOWED_BACKENDS)}")
     return {
         "url": url,
         "backend": backend,
@@ -390,7 +410,7 @@ def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
         f"-env:UserInstallation=file://{profile_dir}",
         "--outdir", out_dir, input_path,
     ]
-    add_log(f"LibreOffice 转换开始", task_id=task_id,
+    add_log("LibreOffice 转换开始", task_id=task_id,
             detail=f"cmd={' '.join(cmd)}\ninput={os.path.basename(input_path)}")
     try:
         result = subprocess.run(
@@ -413,7 +433,7 @@ def _convert_to_pdf_sync(input_path: str, task_id: int) -> str:
         add_log(f"转换完成: {os.path.basename(pdf_path)}", task_id=task_id)
         return pdf_path
     except subprocess.TimeoutExpired:
-        raise RuntimeError(with_code(ErrorCode.DOC_CONVERT_TIMEOUT, "LibreOffice 转换超时(120s)"))
+        raise RuntimeError(with_code(ErrorCode.DOC_CONVERT_TIMEOUT, "LibreOffice 转换超时(120s)")) from None
     except Exception as e:
         add_log(f"转换失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
         raise
@@ -455,13 +475,13 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
     api_url = _validate_external_url(task.mineru_api, "mineru_api", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     _validate_external_url(task.server_url, "server_url", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     timeout = task.timeout or 600
-    add_log(f"开始调用 MinerU API", task_id=task_id,
+    add_log("开始调用 MinerU API", task_id=task_id,
             detail=f"api={api_url}\nbackend={task.backend}\nserver_url={task.server_url}\nparse_method={task.parse_method}\nfile={os.path.basename(file_to_parse)}\ntimeout={timeout}s")
     try:
         file_size = os.path.getsize(file_to_parse)
         add_log(f"文件大小 {file_size} 字节，开始流式上传", task_id=task_id)
         form_data = _build_mineru_form(task)
-        add_log(f"发送参数", task_id=task_id, detail=json.dumps(form_data, ensure_ascii=False))
+        add_log("发送参数", task_id=task_id, detail=json.dumps(form_data, ensure_ascii=False))
         headers = {}
         api_key = task.api_key if hasattr(task, 'api_key') else None
         if api_key:
@@ -481,7 +501,7 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
                 raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, f"MinerU API error {resp.status_code}: {resp.text[:500]}"))
             content_type = resp.headers.get("content-type", "")
             if "application/zip" in content_type or "application/octet-stream" in content_type:
-                add_log(f"MinerU 返回 ZIP 流，保存中...", task_id=task_id)
+                add_log("MinerU 返回 ZIP 流，保存中...", task_id=task_id)
                 bundle_dir = os.path.join(OUTPUT_DIR, f"_bundle_{task_id}")
                 os.makedirs(bundle_dir, exist_ok=True)
                 zip_path = os.path.join(bundle_dir, "mineru_raw.zip")
@@ -494,14 +514,14 @@ def _call_mineru_sync(task: FileTask, task_id: int, file_to_parse: str) -> dict:
                 return {"_bundle_dir": bundle_dir, "results": {os.path.splitext(task.original_filename)[0]: {"md_content": md_content}}}
             return resp.json()
     except httpx.ConnectError as e:
-        add_log(f"连接 MinerU 失败", task_id=task_id, level="error", detail=str(e))
-        raise RuntimeError(with_code(ErrorCode.MINERU_CONNECT_FAIL, f"连接 MinerU 失败: {e}"))
+        add_log("连接 MinerU 失败", task_id=task_id, level="error", detail=str(e))
+        raise RuntimeError(with_code(ErrorCode.MINERU_CONNECT_FAIL, f"连接 MinerU 失败: {e}")) from e
     except httpx.TimeoutException as e:
         add_log(f"调用 MinerU 超时({timeout}s)", task_id=task_id, level="error", detail=str(e))
-        raise RuntimeError(with_code(ErrorCode.MINERU_TIMEOUT, f"调用 MinerU 超时({timeout}s): {e}"))
+        raise RuntimeError(with_code(ErrorCode.MINERU_TIMEOUT, f"调用 MinerU 超时({timeout}s): {e}")) from e
     except json.JSONDecodeError as e:
-        add_log(f"MinerU 响应非 JSON", task_id=task_id, level="error", detail=f"{e}\nbody_preview={resp.text[:500]}")
-        raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, f"MinerU 响应非 JSON: {e}"))
+        add_log("MinerU 响应非 JSON", task_id=task_id, level="error", detail=f"{e}\nbody_preview={resp.text[:500]}")
+        raise RuntimeError(with_code(ErrorCode.MINERU_API_ERROR, f"MinerU 响应非 JSON: {e}")) from e
     except Exception as e:
         add_log(f"调用 MinerU 异常: {type(e).__name__}", task_id=task_id, level="error", detail=traceback.format_exc())
         raise
@@ -513,7 +533,7 @@ def _extract_md_from_result(result: dict, original_filename: str) -> str:
     file_result = results.get(stem) or results.get(original_filename)
     if file_result and isinstance(file_result, dict):
         return file_result.get("md_content", "")
-    for key, val in results.items():
+    for _key, val in results.items():
         if isinstance(val, dict) and val.get("md_content"):
             return val["md_content"]
     return ""
@@ -533,31 +553,32 @@ def _process_task_sync(task_id: int):
                 file_to_parse = task.pdf_path
                 add_log(f"使用已转换的 PDF: {os.path.basename(file_to_parse)}", task_id=task_id)
             else:
-                add_log(f"检测到文档格式，先转换为 PDF", task_id=task_id)
+                add_log("检测到文档格式，先转换为 PDF", task_id=task_id)
                 try:
                     pdf_path = _convert_to_pdf_sync(task.file_path, task_id)
                     task.pdf_path = pdf_path
                     file_to_parse = pdf_path
                     db.commit()
                 except Exception as e:
-                    raise RuntimeError(f"文档转 PDF 失败: {e}")
+                    raise RuntimeError(f"文档转 PDF 失败: {e}") from e
 
         if check_and_mark_cancelled(task, db):
             return
 
         task.status = TaskStatus.PROCESSING
-        task.started_at = datetime.now(timezone.utc)
+        task.started_at = datetime.now(UTC)
         db.commit()
-        add_log(f"任务开始处理", task_id=task_id)
+        add_log("任务开始处理", task_id=task_id)
         _notify_task_change(task_id, "processing")
 
-        if check_and_mark_cancelled(task, db): return
+        if check_and_mark_cancelled(task, db):
+            return
 
         result = _call_mineru_sync(task, task_id, file_to_parse)
 
         md_content = _extract_md_from_result(result, task.original_filename)
         if not md_content:
-            add_log(f"MinerU 返回结果中未找到 md_content", task_id=task_id, level="warn",
+            add_log("MinerU 返回结果中未找到 md_content", task_id=task_id, level="warn",
                     detail=f"result_keys={list(result.keys())}\nfull={json.dumps(result, ensure_ascii=False)[:2000]}")
             md_content = json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -595,10 +616,11 @@ def _process_task_sync(task_id: int):
             with open(out_path, "w", encoding="utf-8") as f:
                 f.write(output_content)
             add_log(f"结果已保存: {out_name} ({len(md_content)} 字符)", task_id=task_id)
-        if check_and_mark_cancelled(task, db, cleanup_path=out_path): return
+        if check_and_mark_cancelled(task, db, cleanup_path=out_path):
+            return
         task.output_path = out_path
         task.status = TaskStatus.COMPLETED
-        task.completed_at = datetime.now(timezone.utc)
+        task.completed_at = datetime.now(UTC)
         db.commit()
         _notify_task_change(task_id, "completed")
         _send_webhook_sync(task, md_content[:50000])
@@ -607,7 +629,7 @@ def _process_task_sync(task_id: int):
         if task:
             task.status = TaskStatus.FAILED
             task.error_message = str(e)
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(UTC)
             db.commit()
             add_log(f"任务失败: {e}", task_id=task_id, level="error", detail=traceback.format_exc())
             _notify_task_change(task_id, "failed", error_message=str(e))
@@ -1063,7 +1085,7 @@ async def get_mineru_container_logs(
         log_file = get_app_log_file()
         if log_file.exists():
             try:
-                async with aiofiles.open(log_file, "r") as f:
+                async with aiofiles.open(log_file) as f:
                     content = await f.read()
                     log_lines = content.splitlines()
                     tail_lines = log_lines[-lines:] if len(log_lines) > lines else log_lines

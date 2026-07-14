@@ -14,7 +14,12 @@ sleep 1
 # Backend
 echo "[1/2] 启动后端 (FastAPI :8900) ..."
 cd "$ROOT/backend"
-pip install -q fastapi uvicorn sqlalchemy httpx python-multipart aiofiles slowapi markdown --break-system-packages 2>/dev/null
+if [ ! -d "$ROOT/.venv" ]; then
+  echo "  创建虚拟环境..."
+  python3 -m venv "$ROOT/.venv"
+fi
+source "$ROOT/.venv/bin/activate"
+pip install -q fastapi uvicorn sqlalchemy httpx python-multipart aiofiles slowapi markdown 2>/dev/null
 setsid python3 -m uvicorn main:app --host 0.0.0.0 --port 8900 --log-level info > /tmp/mineru_backend.log 2>&1 &
 BACK_PID=$!
 
@@ -42,5 +47,5 @@ echo "后端日志: tail -f /tmp/mineru_backend.log"
 echo "前端日志: tail -f /tmp/mineru_frontend.log"
 echo "按 Ctrl+C 停止所有服务"
 
-trap "kill $BACK_PID $FRONT_PID 2>/dev/null; pkill -f 'uvicorn main:app.*8900' 2>/dev/null; pkill -f 'vite.*3001' 2>/dev/null; exit" INT TERM
+trap "kill $BACK_PID $FRONT_PID 2>/dev/null; exit" INT TERM
 wait

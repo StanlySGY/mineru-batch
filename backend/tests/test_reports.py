@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from models import FileTask, TaskStatus, OutputFormat
+from models import FileTask, OutputFormat, TaskStatus
 
 
 class TestQualityReport:
@@ -13,7 +13,7 @@ class TestQualityReport:
         assert data["recent_failures"] == []
 
     def test_report_counts_and_failures(self, client, db_session):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         done = FileTask(
             original_filename="ok.pdf",
             saved_filename="ok.pdf",

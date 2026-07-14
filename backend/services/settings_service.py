@@ -1,17 +1,15 @@
 """Settings service — business logic for settings operations."""
+import ipaddress
 import json
 import os
 import re
 import socket
-import ipaddress
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
-from sqlalchemy.orm import Session
-
 from models import AppSetting
-
+from sqlalchemy.orm import Session
 
 SETTINGS_KEY = "app_settings"
 MASKED_API_KEY = "********"
@@ -82,7 +80,7 @@ def _validate_external_url(url: str, label: str = "URL", allow_private: bool = F
             if not _is_public_ip(addr):
                 raise HTTPException(400, f"{label} host is not allowed")
     except (socket.gaierror, OSError):
-        raise HTTPException(400, f"{label} host cannot be resolved")
+        raise HTTPException(400, f"{label} host cannot be resolved") from None
     return value
 
 
@@ -121,9 +119,10 @@ def validate_endpoint(ep: dict) -> dict:
     url = _validate_external_url(ep.get("url"), "MinerU endpoint", allow_private=ALLOW_PRIVATE_ENDPOINTS)
     server_url_raw = str(ep.get("serverUrl") or "").strip()
     server_url = _validate_external_url(server_url_raw, "serverUrl", allow_private=ALLOW_PRIVATE_ENDPOINTS) if server_url_raw else ""
+    ALLOWED_BACKENDS = ("pipeline", "vlm-engine", "vlm-http-client", "hybrid-engine", "hybrid-http-client")
     backend = str(ep.get("backend") or "hybrid-http-client").strip()
-    if backend not in ("hybrid-http-client", "vlm-http-client"):
-        raise HTTPException(400, "backend is invalid")
+    if backend not in ALLOWED_BACKENDS:
+        raise HTTPException(400, f"backend is invalid, allowed: {', '.join(ALLOWED_BACKENDS)}")
     clean = {
         "url": url,
         "backend": backend,
@@ -146,7 +145,7 @@ def validate_settings_payload(payload: dict, current: dict | None = None) -> dic
         defaults["startPageId"] = int(defaults.get("startPageId", 0))
         defaults["endPageId"] = int(defaults.get("endPageId", 99999))
     except (TypeError, ValueError):
-        raise HTTPException(400, "timeout and page range must be integers")
+        raise HTTPException(400, "timeout and page range must be integers") from None
     if defaults["timeout"] < 10 or defaults["timeout"] > 7200:
         raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
     if defaults["startPageId"] < 0 or defaults["endPageId"] < defaults["startPageId"]:
@@ -185,7 +184,7 @@ def save_settings(db: Session, data: dict) -> dict:
         row = AppSetting(key=SETTINGS_KEY, value_json="{}")
         db.add(row)
     row.value_json = json.dumps(data, ensure_ascii=False)
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(UTC)
     db.commit()
     return data
 

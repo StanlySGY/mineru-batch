@@ -1,7 +1,7 @@
 """Report service — business logic for statistics and report operations."""
-from sqlalchemy.orm import Session
+from models import FileTask, TaskStatus, _iso
 from sqlalchemy import func
-from models import FileTask, _iso, TaskStatus
+from sqlalchemy.orm import Session
 
 
 def classify_failure_reason(message: str | None) -> str:

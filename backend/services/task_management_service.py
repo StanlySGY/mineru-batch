@@ -1,8 +1,7 @@
 """Task management service — business logic for task update and deletion."""
 from fastapi import HTTPException
+from models import FileTask, OutputFormat
 from sqlalchemy.orm import Session
-
-from models import FileTask, OutputFormat, add_log
 
 
 async def delete_task_impl(db: Session, task_id: int, safe_remove_fn) -> dict:
@@ -53,7 +52,7 @@ def update_task_impl(
             t = int(timeout)
             task.timeout = max(60, min(t, 3600))
         except (ValueError, TypeError):
-            raise HTTPException(400, "timeout must be 60-3600")
+            raise HTTPException(400, "timeout must be 60-3600") from None
     db.commit()
     db.refresh(task)
     return task.to_dict()

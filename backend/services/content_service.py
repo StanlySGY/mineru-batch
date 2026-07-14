@@ -1,13 +1,12 @@
 """Content service — business logic for task content operations."""
-import os
 import io
+import os
 import zipfile
+
 import aiofiles
-
 from fastapi import HTTPException
+from models import FileTask, TaskStatus, add_log
 from sqlalchemy.orm import Session
-
-from models import FileTask, TaskStatus, OutputFormat, add_log
 
 
 async def preview_result_impl(db: Session, task_id: int, safe_path_fn) -> dict:
@@ -20,7 +19,7 @@ async def preview_result_impl(db: Session, task_id: int, safe_path_fn) -> dict:
     safe = safe_path_fn(task.output_path)
     if not os.path.exists(safe):
         raise HTTPException(404, "Output file missing on disk")
-    async with aiofiles.open(safe, "r", encoding="utf-8") as f:
+    async with aiofiles.open(safe, encoding="utf-8") as f:
         content = await f.read()
     return {"content": content, "filename": os.path.basename(safe), "format": task.output_format.value}
 

@@ -1,14 +1,14 @@
 """Stats service — business logic for statistics operations."""
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy.orm import Session
 from models import FileTask, TaskStatus
+from sqlalchemy.orm import Session
 
 
 def get_stats_trend_impl(db: Session, days: int = 7) -> list:
     """Get task completion trend over days. Returns list of daily stats."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     tasks = db.query(FileTask.created_at, FileTask.status).filter(
         FileTask.created_at >= cutoff
     ).all()

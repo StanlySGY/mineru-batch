@@ -1,15 +1,13 @@
 """Upload service — business logic extracted from routes.py upload endpoint."""
+import json
 import os
 import uuid
-import json
 
 import aiofiles
-from fastapi import UploadFile, HTTPException
+from fastapi import HTTPException, UploadFile
+from models import Batch, FileTask, OutputFormat, add_log
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
-from models import Batch, FileTask, OutputFormat, add_log
-
 
 MAX_FILE_SIZE = 200 * 1024 * 1024
 
@@ -46,7 +44,7 @@ def validate_upload_params(
         _timeout = int(timeout)
         _priority = max(0, min(2, int(priority)))
     except ValueError:
-        raise HTTPException(400, "start_page_id, end_page_id, timeout, priority must be integers")
+        raise HTTPException(400, "start_page_id, end_page_id, timeout, priority must be integers") from None
     if _timeout < 10 or _timeout > 7200:
         raise HTTPException(400, "timeout must be between 10 and 7200 seconds")
     if _start_page < 0:
@@ -314,7 +312,7 @@ async def upload_files_impl(
         notify_task_change_fn(task.id, "pending")
 
         if is_doc_file(file.filename) and not parse_bool(auto_convert):
-            add_log(f"文档格式文件，等待手动转换为 PDF", task_id=task.id)
+            add_log("文档格式文件，等待手动转换为 PDF", task_id=task.id)
 
     for r in results:
         tid = r["id"]

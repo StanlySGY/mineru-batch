@@ -1,9 +1,8 @@
 """RAG quality scoring service."""
 import re
 
-from sqlalchemy.orm import Session
-
 from models import FileTask, TaskStatus
+from sqlalchemy.orm import Session
 
 
 def score_text_quality(content: str) -> dict:
