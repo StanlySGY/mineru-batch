@@ -24,6 +24,7 @@ const isMobile = ref(window.innerWidth <= 768)
 const filterStatus = ref('')
 const filterSearch = ref('')
 const filterBatchId = ref(typeof route.query.batch_id === 'string' ? route.query.batch_id : '')
+const batchList = ref<Array<{ batch_id: string; batch_name: string | null; total: number; completed: number; failed: number; progress: number }>>([])
 const loading = ref(false)
 const firstLoad = ref(true)
 const now = ref(Date.now())
@@ -814,6 +815,19 @@ const detailTimeline = computed(() => {
 
 let sseDebounce: ReturnType<typeof setTimeout> | null = null
 
+async function loadBatchList() {
+  try {
+    const res = await api.getBatches(50)
+    batchList.value = Array.isArray(res?.items) ? res.items : []
+  } catch {}
+}
+
+function handleBatchFilterChange(val: string) {
+  filterBatchId.value = val
+  page.value = 1
+  router.replace({ path: '/tasks', query: { ...route.query, batch_id: val || undefined } })
+}
+
 watch(() => route.query.batch_id, (v) => {
   filterBatchId.value = typeof v === 'string' ? v : ''
   page.value = 1
@@ -827,6 +841,7 @@ watch(tasks, (list) => {
 
 onMounted(() => {
   loadTasks()
+  loadBatchList()
   sseClose = api.onTaskEvent(
     (evt) => {
       if (evt.type === 'task_update') {
@@ -867,6 +882,13 @@ function checkMobile() {
           <el-option label="处理中" value="processing" />
           <el-option label="已完成" value="completed" />
           <el-option label="失败" value="failed" />
+        </el-select>
+        <el-select :model-value="filterBatchId" placeholder="批次筛选" clearable style="width:200px" size="small" @change="handleBatchFilterChange">
+          <el-option label="全部批次" value="" />
+          <el-option v-for="b in batchList" :key="b.batch_id" :label="b.batch_name || b.batch_id" :value="b.batch_id">
+            <span>{{ b.batch_name || b.batch_id }}</span>
+            <span style="float:right;color:#909399;font-size:12px">{{ b.progress }}%</span>
+          </el-option>
         </el-select>
         <template v-if="selectedIds.length">
           <el-button v-if="selectedHasDownloadable" type="primary" size="small" plain :icon="Download" @click="handleBatchDownload">
