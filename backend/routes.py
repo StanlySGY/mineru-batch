@@ -820,6 +820,7 @@ async def upload_files(
     batch_id: str = Form(None),
     batch_name: str = Form(None),
     priority: str = Form("0"),
+    auto_parse: str = Form("true"),
     db: Session = Depends(get_db),
 ):
     return await upload_files_impl(
@@ -859,12 +860,26 @@ async def upload_files(
         get_endpoint_api_key,
         _notify_task_change,
         _enqueue_task,
+        auto_parse=auto_parse.lower() in ("true", "1", "yes"),
     )
 
 
 @router.post("/tasks/{task_id}/convert")
 async def convert_doc_to_pdf(task_id: int, db: Session = Depends(get_db), _: None = Depends(require_admin)):
     return await convert_doc_to_pdf_impl(db, task_id, _is_doc_file, _convert_to_pdf, _enqueue_task)
+
+
+@router.post("/tasks/start-parse")
+async def start_parse(batch_id: str = Query(None), db: Session = Depends(get_db)):
+    """Enqueue all uploaded (PENDING, not started) tasks for parsing."""
+    from models import FileTask, TaskStatus as TS
+    q = db.query(FileTask).filter(FileTask.status == TS.PENDING, FileTask.started_at.is_(None))
+    if batch_id:
+        q = q.filter(FileTask.batch_id == batch_id)
+    tasks = q.all()
+    for t in tasks:
+        _enqueue_task(t.id, priority=getattr(t, 'priority', 0) or 0)
+    return {"enqueued": len(tasks)}
 
 
 @router.get("/tasks")

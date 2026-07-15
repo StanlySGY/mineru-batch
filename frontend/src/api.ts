@@ -164,6 +164,7 @@ export interface UploadOptions {
   apiKey?: string
   batchId?: string
   batchName?: string
+  autoParse?: boolean
 }
 
 export interface ServerEndpoint {
@@ -383,6 +384,7 @@ export const api = {
     if (opts.apiKey) form.append('api_key', opts.apiKey)
     if (opts.batchId) form.append('batch_id', opts.batchId)
     if (opts.batchName) form.append('batch_name', opts.batchName)
+    if (opts.autoParse !== undefined) form.append('auto_parse', String(opts.autoParse))
     const startTime = Date.now()
     let lastLoaded = 0
     let lastTime = startTime
@@ -406,6 +408,11 @@ export const api = {
       },
     })
     return data
+  },
+
+  async startParse(batchId?: string) {
+    const { data } = await http.post('/tasks/start-parse', null, { params: batchId ? { batch_id: batchId } : undefined })
+    return data as { enqueued: number }
   },
 
   async listTasks(params: { status?: string; search?: string; batch_id?: string; page?: number; size?: number }) {

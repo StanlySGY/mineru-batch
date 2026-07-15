@@ -116,6 +116,8 @@ const enabledEndpoints = computed(() => cfg.mineruEndpoints.value.filter(e => e.
 const selectedAvailableEndpoints = computed(() => selectedEndpoints.value.filter(ep => ep.enabled && isNodeAvailable(nodePings.value[ep.url])))
 const selectedUnavailableCount = computed(() => selectedEndpoints.value.length - selectedAvailableEndpoints.value.length)
 const canStartUpload = computed(() => !uploading.value && fileList.value.length > 0 && selectedAvailableEndpoints.value.length > 0)
+const uploadedBatchId = ref<string | null>(null)
+const canStartParse = computed(() => !uploading.value && uploadedBatchId.value !== null)
 
 function toggleEndpoint(url: string) {
   const found = cfg.mineruEndpoints.value.find(e => e.url === url)
@@ -219,9 +221,9 @@ function addFiles(files: File[]) {
 
   ElMessage.success(`已添加 ${allowed.length} 个文件`)
 
-  // 自动开始上传（静默进行）
+  // 自动开始上传（静默进行，上传后等待用户点击开始解析）
   if (!uploading.value && selectedAvailableEndpoints.value.length > 0) {
-    nextTick(() => handleUpload())
+    nextTick(() => handleUpload(true))
   }
 }
 
@@ -268,7 +270,7 @@ async function handleDrop(e: DragEvent) {
   addFiles(droppedFiles)
 }
 
-async function handleUpload() {
+async function handleUpload(autoParse = false) {
   const rawFiles = fileList.value.map((f) => f.raw).filter(Boolean) as File[]
   if (!rawFiles.length) return ElMessage.warning('请选择文件')
   if (!enabledEndpoints.value.length) return ElMessage.warning('没有启用的解析节点，请先在设置页启用节点')
@@ -308,6 +310,7 @@ async function handleUpload() {
       autoConvert: sc.autoConvert,
       batchId,
       batchName: batchName.value.trim() || undefined,
+      autoParse,
     } as import('../api').UploadOptions
   }
 
@@ -390,14 +393,21 @@ async function handleUpload() {
       uploadProgress.value = 100
       uploadSpeed.value = ''
       uploadEta.value = ''
-      const msg = failed > 0
-        ? `完成 ${completed} 个，失败 ${failed} 个`
-        : `已提交 ${allTasks.length} 个解析任务`
-      ElMessage.success(msg)
-      requestNotificationPermission()
-      fileList.value = []
-      batchName.value = ''
-      router.push('/tasks')
+      if (autoParse) {
+        const msg = failed > 0
+          ? `完成 ${completed} 个，失败 ${failed} 个`
+          : `已提交 ${allTasks.length} 个解析任务`
+        ElMessage.success(msg)
+        requestNotificationPermission()
+        fileList.value = []
+        batchName.value = ''
+        router.push('/tasks')
+      } else {
+        uploadedBatchId.value = batchId
+        ElMessage.success(`已上传 ${completed} 个文件，点击"开始解析"进行解析`)
+        fileList.value = []
+        batchName.value = ''
+      }
     }
   } catch (e: any) {
     if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') {
@@ -409,10 +419,24 @@ async function handleUpload() {
   }
 }
 
+async function handleStartParse() {
+  if (!uploadedBatchId.value) return
+  try {
+    const res = await api.startParse(uploadedBatchId.value)
+    ElMessage.success(`已提交 ${res.enqueued} 个任务进行解析`)
+    uploadedBatchId.value = null
+    requestNotificationPermission()
+    router.push('/tasks')
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '开始解析失败')
+  }
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
     e.preventDefault()
-    if (canStartUpload.value) handleUpload()
+    if (canStartParse.value) handleStartParse()
+    else if (canStartUpload.value) handleUpload()
   }
 }
 
@@ -630,7 +654,10 @@ onMounted(() => {
       </div>
 
       <div class="card-section">
-        <el-button type="primary" size="large" :loading="uploading" :disabled="!canStartUpload" @click="handleUpload" class="submit-btn">
+        <el-button v-if="canStartParse" type="success" size="large" @click="handleStartParse" class="submit-btn">
+          开始解析 <span class="shortcut-hint">Ctrl+↵</span>
+        </el-button>
+        <el-button v-else type="primary" size="large" :loading="uploading" :disabled="!canStartUpload" @click="handleUpload" class="submit-btn">
           开始解析 <span class="shortcut-hint">Ctrl+↵</span>
         </el-button>
       </div>

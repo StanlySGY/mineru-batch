@@ -228,6 +228,7 @@ async def upload_files_impl(
     get_endpoint_api_key_fn,
     notify_task_change_fn,
     enqueue_task_fn,
+    auto_parse: bool = True,
 ) -> dict:
     """Upload files and create tasks. Returns dict with tasks list."""
     _start_page, _end_page, _timeout, _priority = validate_upload_params(
@@ -318,12 +319,13 @@ async def upload_files_impl(
         if is_doc_file(file.filename) and not parse_bool(auto_convert):
             add_log("文档格式文件，等待手动转换为 PDF", task_id=task.id)
 
-    for r in results:
-        tid = r["id"]
-        task = db.query(FileTask).filter(FileTask.id == tid).first()
-        if is_doc_file(task.original_filename) and not task.auto_convert_doc:
-            continue
-        enqueue_task_fn(tid, priority=getattr(task, 'priority', 0) or 0)
+    if auto_parse:
+        for r in results:
+            tid = r["id"]
+            task = db.query(FileTask).filter(FileTask.id == tid).first()
+            if is_doc_file(task.original_filename) and not task.auto_convert_doc:
+                continue
+            enqueue_task_fn(tid, priority=getattr(task, 'priority', 0) or 0)
 
     return {"tasks": results}
 
