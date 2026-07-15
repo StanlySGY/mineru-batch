@@ -82,6 +82,8 @@ def retry_task_impl(
     task.output_path = None
     task.status = TaskStatus.PENDING
     task.error_message = None
+    task.started_at = None
+    task.completed_at = None
 
     if mineru_api:
         task.mineru_api = validate_external_url_fn(mineru_api, "mineru_api", allow_private=allow_private)
