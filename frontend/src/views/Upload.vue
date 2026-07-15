@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted, onMounted } from 'vue'
+import { ref, computed, onUnmounted, onMounted, nextTick } from 'vue'
 import { UploadFilled, Document, Delete } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api } from '../api'
@@ -196,12 +196,12 @@ function addFiles(files: File[]) {
     const ext = '.' + f.name.split('.').pop()?.toLowerCase()
     return ALLOWED_EXTENSIONS.includes(ext)
   })
-  
+
   if (!allowed.length) {
     ElMessage.warning('没有可识别的合法文件类型')
     return
   }
-  
+
   const oversized = allowed.filter(f => f.size > cfg.state.maxFileSize * 1024 * 1024)
   if (oversized.length > 0) {
     ElMessage.error(`有 ${oversized.length} 个文件超过了 ${cfg.state.maxFileSize}MB 的大小限制`)
@@ -212,12 +212,17 @@ function addFiles(files: File[]) {
     ElMessage.warning('最多 200 个文件')
     return
   }
-  
+
   for (const f of allowed) {
     fileList.value.push({ name: (f as FileWithPath)._folderPath || f.name, raw: f } as any)
   }
-  
+
   ElMessage.success(`已添加 ${allowed.length} 个文件`)
+
+  // 自动开始上传（静默进行）
+  if (!uploading.value && selectedAvailableEndpoints.value.length > 0) {
+    nextTick(() => handleUpload())
+  }
 }
 
 function handleFileSelect(e: Event) {
