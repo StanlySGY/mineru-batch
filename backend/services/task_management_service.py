@@ -50,9 +50,9 @@ def update_task_impl(
     if timeout:
         try:
             t = int(timeout)
-            task.timeout = max(60, min(t, 3600))
+            task.timeout = max(60, min(t, 7200))
         except (ValueError, TypeError):
-            raise HTTPException(400, "timeout must be 60-3600") from None
+            raise HTTPException(400, "timeout must be 60-7200") from None
     db.commit()
     db.refresh(task)
     return task.to_dict()

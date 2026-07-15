@@ -353,7 +353,7 @@ const paramTable = [
       </el-form-item>
 
       <el-form-item label="超时时间 (秒)">
-        <el-input-number v-model="cfg.state.timeout" :min="60" :max="3600" :step="60" />
+        <el-input-number v-model="cfg.state.timeout" :min="60" :max="7200" :step="60" />
         <div class="form-tip">大文件建议 600~1800 秒，防止长时间解析断连</div>
       </el-form-item>
 
